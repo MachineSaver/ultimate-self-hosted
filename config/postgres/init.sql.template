@@ -1,0 +1,13 @@
+-- Created by install.sh — passwords substituted at install time
+
+-- Authentik database
+CREATE DATABASE authentik;
+CREATE USER authentik WITH ENCRYPTED PASSWORD '{{POSTGRES_PASSWORD}}';
+GRANT ALL PRIVILEGES ON DATABASE authentik TO authentik;
+ALTER DATABASE authentik OWNER TO authentik;
+
+-- Nextcloud database
+CREATE DATABASE nextcloud;
+CREATE USER nextcloud WITH ENCRYPTED PASSWORD '{{NEXTCLOUD_DB_PASSWORD}}';
+GRANT ALL PRIVILEGES ON DATABASE nextcloud TO nextcloud;
+ALTER DATABASE nextcloud OWNER TO nextcloud;

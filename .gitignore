@@ -1,0 +1,17 @@
+# Generated secrets — never commit
+.env
+data/traefik/acme.json
+
+# Processed configs (generated from *.template by install.sh)
+config/traefik/traefik.yml
+config/postgres/init.sql
+config/authentik/blueprints/01-oidc-providers.yml
+config/authentik/blueprints/02-proxy-providers.yml
+config/headscale/config.yaml
+
+# Persistent data
+data/
+
+# OS
+.DS_Store
+Thumbs.db
