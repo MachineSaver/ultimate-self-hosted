@@ -16,6 +16,15 @@ NC='\033[0m'
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
 
+# Storage box defaults — overridden by prompt_storage_box if the user opts in
+USE_STORAGE_BOX=false
+STORAGEBOX_HOST=""
+STORAGEBOX_USER=""
+STORAGEBOX_MOUNT="/mnt/storagebox"
+DOWNLOADS_DIR="./data/downloads"
+MEDIA_DIR_LOCAL="./data/media"
+DOWNLOADS_DIR_LOCAL="./data/downloads"
+
 print_banner() {
   echo -e "${BLUE}${BOLD}"
   cat << 'BANNER'
@@ -125,14 +134,25 @@ generate_secrets() {
   VAULTWARDEN_OIDC_CLIENT_ID="vaultwarden-$(gen_short_id)"
   VAULTWARDEN_OIDC_CLIENT_SECRET=$(gen_secret)
 
-  # WireGuard bcrypt password hash
+  # WireGuard bcrypt password hash — wg-easy requires this; an empty value
+  # leaves the Web UI completely unprotected on a public IP.
+  WG_PASSWORD_HASH=""
   if command -v python3 &>/dev/null && python3 -c "import bcrypt" &>/dev/null 2>&1; then
     WG_PASSWORD_HASH=$(python3 -c "import bcrypt; print(bcrypt.hashpw('${ADMIN_PASSWORD}'.encode(), bcrypt.gensalt(12)).decode())")
   elif command -v python3 &>/dev/null; then
-    python3 -m pip install bcrypt -q 2>/dev/null || true
-    WG_PASSWORD_HASH=$(python3 -c "import bcrypt; print(bcrypt.hashpw('${ADMIN_PASSWORD}'.encode(), bcrypt.gensalt(12)).decode())" 2>/dev/null || echo "")
+    info "bcrypt not found — trying pip install..."
+    python3 -m pip install bcrypt -q 2>/dev/null \
+      && WG_PASSWORD_HASH=$(python3 -c "import bcrypt; print(bcrypt.hashpw('${ADMIN_PASSWORD}'.encode(), bcrypt.gensalt(12)).decode())" 2>/dev/null || true)
   fi
-  WG_PASSWORD_HASH="${WG_PASSWORD_HASH:-}"
+  if [[ -z "$WG_PASSWORD_HASH" ]]; then
+    info "pip bcrypt unavailable — trying apt-get install python3-bcrypt..."
+    apt-get install -y -qq python3-bcrypt 2>/dev/null \
+      && WG_PASSWORD_HASH=$(python3 -c "import bcrypt; print(bcrypt.hashpw('${ADMIN_PASSWORD}'.encode(), bcrypt.gensalt(12)).decode())" 2>/dev/null || true)
+  fi
+  if [[ -z "$WG_PASSWORD_HASH" ]]; then
+    warn "Could not generate WireGuard password hash — wg-easy UI will have no second password."
+    warn "The UI is still protected by Authentik forward auth. Install python3-bcrypt for double-auth."
+  fi
 
   success "Secrets generated"
 }
@@ -154,7 +174,15 @@ TZ=${TZ}
 PUID=${PUID}
 PGID=${PGID}
 MEDIA_DIR=${MEDIA_DIR}
-DOWNLOADS_DIR=./data/downloads
+DOWNLOADS_DIR=${DOWNLOADS_DIR}
+MEDIA_DIR_LOCAL=${MEDIA_DIR_LOCAL}
+DOWNLOADS_DIR_LOCAL=${DOWNLOADS_DIR_LOCAL}
+
+# ── Storage Box ───────────────────────────────────────────────────
+USE_STORAGE_BOX=${USE_STORAGE_BOX}
+STORAGEBOX_HOST=${STORAGEBOX_HOST}
+STORAGEBOX_USER=${STORAGEBOX_USER}
+STORAGEBOX_MOUNT=${STORAGEBOX_MOUNT}
 
 # ── Databases ────────────────────────────────────────────────────
 POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
@@ -239,6 +267,28 @@ create_directories() {
   touch data/traefik/acme.json
   chmod 600 data/traefik/acme.json
 
+  # Pre-seed ARR service configs so they start with External auth.
+  # Without this they default to Forms auth and show a second login screen
+  # even though Authentik forward-auth is already protecting the route.
+  # Only written on fresh install — never overwrites an existing config.
+  local arr_xml
+  arr_xml='<?xml version="1.0" encoding="utf-8"?>
+<Config>
+  <AuthenticationMethod>External</AuthenticationMethod>
+  <AuthenticationRequired>Enabled</AuthenticationRequired>
+  <LogLevel>info</LogLevel>
+  <AnalyticsEnabled>False</AnalyticsEnabled>
+</Config>'
+
+  for svc in sonarr radarr lidarr prowlarr; do
+    local cfg="data/${svc}/config.xml"
+    if [[ ! -f "$cfg" ]]; then
+      echo "$arr_xml" > "$cfg"
+      chown "${PUID}:${PGID}" "$cfg" 2>/dev/null || true
+      info "  Pre-configured ${svc}: auth=External"
+    fi
+  done
+
   success "Directories created"
 }
 
@@ -265,6 +315,7 @@ process_templates() {
       -e "s|{{GRAFANA_OIDC_CLIENT_SECRET}}|${GRAFANA_OIDC_CLIENT_SECRET}|g" \
       -e "s|{{VAULTWARDEN_OIDC_CLIENT_ID}}|${VAULTWARDEN_OIDC_CLIENT_ID}|g" \
       -e "s|{{VAULTWARDEN_OIDC_CLIENT_SECRET}}|${VAULTWARDEN_OIDC_CLIENT_SECRET}|g" \
+      -e "s|{{NEXTCLOUD_DB_PASSWORD}}|${NEXTCLOUD_DB_PASSWORD}|g" \
       -e "s|{{TZ}}|${TZ}|g" \
       "$tmpl" > "$output"
     info "  $(basename "$tmpl") → $(basename "$output")"
@@ -303,18 +354,41 @@ start_stack() {
   info "[3/5] Starting Authentik (first run takes ~90s)..."
   docker compose up -d authentik-server authentik-worker
 
-  info "      Waiting for Authentik API..."
+  info "      Waiting for Authentik API (first run runs DB migrations — allow ~90s)..."
   retries=0
-  until curl -sf --max-time 5 "http://localhost:9000/api/v3/root/config/" &>/dev/null 2>&1; do
+  until docker compose exec -T authentik-server /lifecycle/ak healthcheck &>/dev/null 2>&1; do
     retries=$((retries+1))
     [[ $retries -gt 60 ]] && {
-      warn "Authentik is slow to start. Check: docker compose logs authentik-server"
+      warn "Authentik is taking longer than expected. Check: docker compose logs authentik-server"
       warn "You can run 'docker compose up -d' manually once Authentik is ready."
       return 0
     }
     sleep 3
   done
   success "      Authentik ready"
+
+  if [[ "${ADMIN_USER}" != "akadmin" ]]; then
+    info "      Renaming Authentik default user 'akadmin' → '${ADMIN_USER}'..."
+    local user_pk
+    user_pk=$(docker compose exec -T authentik-server \
+      curl -sf \
+        -H "Authorization: Bearer ${AUTHENTIK_BOOTSTRAP_TOKEN}" \
+        "http://localhost:9000/api/v3/core/users/?username=akadmin" \
+      | python3 -c "import sys,json; d=json.load(sys.stdin); print(d['results'][0]['pk'])" 2>/dev/null || true)
+
+    if [[ -n "$user_pk" ]]; then
+      docker compose exec -T authentik-server \
+        curl -sf -X PATCH \
+          -H "Authorization: Bearer ${AUTHENTIK_BOOTSTRAP_TOKEN}" \
+          -H "Content-Type: application/json" \
+          -d "{\"username\": \"${ADMIN_USER}\", \"name\": \"${ADMIN_USER}\"}" \
+          "http://localhost:9000/api/v3/core/users/${user_pk}/" > /dev/null \
+        && success "      Authentik admin username set to '${ADMIN_USER}'" \
+        || warn "Could not rename akadmin — log in to Authentik as 'akadmin' and rename manually"
+    else
+      warn "Could not find akadmin user — log in to Authentik as 'akadmin' and rename manually"
+    fi
+  fi
 
   info "[4/5] Starting remaining services..."
   docker compose up -d
@@ -364,29 +438,260 @@ DONE
   echo -e "${BOLD}Headscale client connection:${NC}"
   echo -e "  ${CYAN}tailscale login --login-server https://headscale.${DOMAIN}${NC}"
   echo ""
-  echo -e "${YELLOW}${BOLD}Important next steps:${NC}"
-  echo -e "  1. Point DNS A/CNAME records (or wildcard *.${DOMAIN}) to this server's IP"
-  echo -e "  2. Port 80, 443, and 51820/UDP must be open in your firewall"
-  echo -e "  3. Authentik at https://auth.${DOMAIN} — Blueprints auto-configure OIDC"
-  echo -e "  4. For Jellyfin OIDC: install SSO plugin from the plugin catalog"
-  echo -e "  5. For Nextcloud OIDC: run scripts/configure-nextcloud-oidc.sh after boot"
-  echo -e "  6. ARR services: configure with 'Authentication: External' in their settings"
+
+  echo -e "${YELLOW}${BOLD}First-boot checklist — do these before considering setup complete:${NC}"
   echo ""
-  echo -e "  Logs: ${CYAN}docker compose logs -f [service]${NC}"
-  echo -e "  Stop: ${CYAN}docker compose down${NC}"
+  echo -e "  ${BOLD}Infrastructure${NC}"
+  echo -e "  [ ] DNS — wildcard *.${DOMAIN} (or per-subdomain A records) → this server's IP"
+  echo -e "  [ ] Firewall — TCP 80, 443 and UDP 51820 open; all else blocked"
+  echo ""
+  echo -e "  ${BOLD}One-time scripts${NC}"
+  echo -e "  [ ] Nextcloud OIDC:  ${CYAN}./scripts/configure-nextcloud-oidc.sh${NC}"
+  echo ""
+  echo -e "  ${BOLD}Services with their own first-run wizard (complete before using)${NC}"
+  echo -e "  [ ] Jellyfin   https://jellyfin.${DOMAIN}   — complete setup wizard; add media libraries"
+  echo -e "  [ ] Jellyseerr https://requests.${DOMAIN}  — connect to Jellyfin in setup wizard"
+  echo -e "  [ ] Uptime Kuma https://uptime.${DOMAIN}   — create admin account on first visit"
+  echo ""
+  echo -e "  ${BOLD}Services that require a separate login (by design)${NC}"
+  echo -e "  [ ] qBittorrent — temp password is in logs:"
+  echo -e "      ${CYAN}docker compose logs qbittorrent | grep -i 'temporary password'${NC}"
+  echo -e "  [ ] WireGuard Easy — uses the admin password you set during install"
+  echo ""
+  echo -e "  ${BOLD}Optional${NC}"
+  echo -e "  [ ] Jellyfin OIDC plugin — install from Jellyfin → Dashboard → Plugins → Catalog"
+  echo ""
+
+  echo -e "  Start:  ${CYAN}./scripts/start.sh${NC}  (checks Storage Box, then brings stack up)"
+  echo -e "  Logs:   ${CYAN}docker compose logs -f [service]${NC}"
+  echo -e "  Stop:   ${CYAN}docker compose down${NC}"
   echo -e "  Update: ${CYAN}docker compose pull && docker compose up -d${NC}"
   echo ""
+}
+
+prompt_storage_box() {
+  echo ""
+  step "Storage configuration"
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+
+  read -rp "$(echo -e "${YELLOW}Use a Hetzner Storage Box for media & downloads? [y/N]${NC}: ")" _use_sb
+  if [[ "${_use_sb,,}" == "y" ]]; then
+    USE_STORAGE_BOX=true
+
+    while [[ -z "${STORAGEBOX_HOST:-}" ]]; do
+      read -rp "$(echo -e "${YELLOW}Storage Box hostname${NC} (e.g. u123456.your-storagebox.de): ")" STORAGEBOX_HOST
+    done
+
+    while [[ -z "${STORAGEBOX_USER:-}" ]]; do
+      read -rp "$(echo -e "${YELLOW}Storage Box username${NC} (e.g. u123456): ")" STORAGEBOX_USER
+    done
+
+    while [[ -z "${STORAGEBOX_PASS:-}" ]]; do
+      read -rsp "$(echo -e "${YELLOW}Storage Box password${NC}: ")" STORAGEBOX_PASS; echo
+    done
+
+    read -rp "$(echo -e "${YELLOW}Mount point${NC} [/mnt/storagebox]: ")" _mount
+    STORAGEBOX_MOUNT="${_mount:-/mnt/storagebox}"
+
+    # Local dirs are the safe fallback; storage box paths become the active dirs
+    MEDIA_DIR_LOCAL="./data/media"
+    DOWNLOADS_DIR_LOCAL="./data/downloads"
+    MEDIA_DIR="${STORAGEBOX_MOUNT}/media"
+    DOWNLOADS_DIR="${STORAGEBOX_MOUNT}/downloads"
+
+    success "Storage Box configured: //${STORAGEBOX_HOST}/${STORAGEBOX_USER} → ${STORAGEBOX_MOUNT}"
+  else
+    USE_STORAGE_BOX=false
+    MEDIA_DIR="${MEDIA_DIR:-./data/media}"
+    DOWNLOADS_DIR="./data/downloads"
+    MEDIA_DIR_LOCAL="${MEDIA_DIR}"
+    DOWNLOADS_DIR_LOCAL="${DOWNLOADS_DIR}"
+    info "Using local storage for media"
+  fi
+}
+
+setup_storage_box_mount() {
+  [[ "${USE_STORAGE_BOX}" != "true" ]] && return 0
+
+  step "Setting up Hetzner Storage Box mount"
+
+  if ! command -v mount.cifs &>/dev/null; then
+    info "Installing cifs-utils..."
+    apt-get update -qq && apt-get install -y -qq cifs-utils \
+      || die "Failed to install cifs-utils — install it manually and re-run"
+  fi
+
+  local creds_file="/root/.storagebox-credentials"
+  printf 'username=%s\npassword=%s\n' "${STORAGEBOX_USER}" "${STORAGEBOX_PASS}" > "$creds_file"
+  chmod 600 "$creds_file"
+
+  mkdir -p "${STORAGEBOX_MOUNT}"
+
+  local share="//${STORAGEBOX_HOST}/${STORAGEBOX_USER}"
+  info "Mounting ${share} → ${STORAGEBOX_MOUNT}..."
+  mount -t cifs "$share" "${STORAGEBOX_MOUNT}" \
+    -o "credentials=${creds_file},uid=${PUID},gid=${PGID},iocharset=utf8,vers=3.0" \
+    || die "Mount failed. Verify hostname, credentials, and that TCP 445 is reachable from this server."
+
+  mkdir -p \
+    "${STORAGEBOX_MOUNT}/media/movies" \
+    "${STORAGEBOX_MOUNT}/media/tv" \
+    "${STORAGEBOX_MOUNT}/media/music" \
+    "${STORAGEBOX_MOUNT}/media/books" \
+    "${STORAGEBOX_MOUNT}/media/audiobooks" \
+    "${STORAGEBOX_MOUNT}/media/podcasts" \
+    "${STORAGEBOX_MOUNT}/downloads/complete" \
+    "${STORAGEBOX_MOUNT}/downloads/incomplete"
+
+  # _netdev  = wait for network before mounting on boot
+  # nofail   = don't halt boot if the Storage Box is unreachable
+  local fstab_entry="${share} ${STORAGEBOX_MOUNT} cifs credentials=${creds_file},uid=${PUID},gid=${PGID},iocharset=utf8,vers=3.0,_netdev,nofail 0 0"
+  if ! grep -qF "${STORAGEBOX_MOUNT}" /etc/fstab; then
+    echo "$fstab_entry" >> /etc/fstab
+    success "fstab entry added (auto-mounts on reboot with nofail)"
+  else
+    info "fstab entry already exists — skipping"
+  fi
+
+  success "Storage Box mounted at ${STORAGEBOX_MOUNT}"
+}
+
+# Checks mount health and exports MEDIA_DIR / DOWNLOADS_DIR for this shell
+# session so docker compose picks up the right paths. Falls back to local
+# storage with a clear warning if the Storage Box is unreachable.
+verify_mount_health() {
+  [[ "${USE_STORAGE_BOX:-false}" != "true" ]] && return 0
+
+  local mount_ok=false
+
+  if mountpoint -q "${STORAGEBOX_MOUNT}" 2>/dev/null; then
+    if timeout 5 ls "${STORAGEBOX_MOUNT}/" &>/dev/null 2>&1; then
+      mount_ok=true
+    else
+      warn "Storage Box mount is stale — attempting remount..."
+      umount -l "${STORAGEBOX_MOUNT}" 2>/dev/null || true
+    fi
+  fi
+
+  if [[ "$mount_ok" == "false" ]]; then
+    info "Storage Box not mounted — attempting to mount via fstab..."
+    if mount "${STORAGEBOX_MOUNT}" 2>/dev/null; then
+      sleep 2
+      if timeout 5 ls "${STORAGEBOX_MOUNT}/" &>/dev/null 2>&1; then
+        mount_ok=true
+        success "Storage Box remounted successfully"
+      fi
+    fi
+  fi
+
+  if [[ "$mount_ok" == "true" ]]; then
+    export MEDIA_DIR="${STORAGEBOX_MOUNT}/media"
+    export DOWNLOADS_DIR="${STORAGEBOX_MOUNT}/downloads"
+    success "Storage Box healthy — using ${STORAGEBOX_MOUNT} for media"
+  else
+    export MEDIA_DIR="${MEDIA_DIR_LOCAL}"
+    export DOWNLOADS_DIR="${DOWNLOADS_DIR_LOCAL}"
+    echo ""
+    echo -e "${YELLOW}${BOLD}  ⚠  WARNING: Hetzner Storage Box is UNAVAILABLE${NC}"
+    echo -e "${YELLOW}     Falling back to LOCAL storage for media and downloads.${NC}"
+    echo -e "${YELLOW}     Any media on the Storage Box will NOT be visible until${NC}"
+    echo -e "${YELLOW}     the Storage Box is remounted and the stack is restarted.${NC}"
+    echo ""
+    echo -e "     Remount:  ${CYAN}mount ${STORAGEBOX_MOUNT}${NC}"
+    echo -e "     Restart:  ${CYAN}./scripts/start.sh${NC}"
+    echo ""
+  fi
+}
+
+generate_start_script() {
+  step "Generating scripts/start.sh"
+
+  cat > scripts/start.sh << 'STARTSCRIPT'
+#!/usr/bin/env bash
+# Generated by install.sh — use this script to start the stack on subsequent boots.
+# It re-checks the Hetzner Storage Box mount before bringing containers up,
+# and falls back to local storage with a warning if the box is unreachable.
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$SCRIPT_DIR/.."
+
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+CYAN='\033[0;36m'
+BOLD='\033[1m'
+NC='\033[0m'
+
+warn()    { echo -e "${YELLOW}[WARN]${NC}  $*"; }
+info()    { echo -e "${CYAN}[INFO]${NC}  $*"; }
+success() { echo -e "${GREEN}[OK]${NC}    $*"; }
+
+# shellcheck source=/dev/null
+set -a; source .env; set +a
+
+if [[ "${USE_STORAGE_BOX:-false}" == "true" ]]; then
+  mount_ok=false
+
+  if mountpoint -q "${STORAGEBOX_MOUNT}" 2>/dev/null; then
+    if timeout 5 ls "${STORAGEBOX_MOUNT}/" &>/dev/null 2>&1; then
+      mount_ok=true
+    else
+      warn "Storage Box mount is stale — attempting remount..."
+      umount -l "${STORAGEBOX_MOUNT}" 2>/dev/null || true
+    fi
+  fi
+
+  if [[ "$mount_ok" == "false" ]]; then
+    info "Storage Box not mounted — attempting to mount via fstab..."
+    if mount "${STORAGEBOX_MOUNT}" 2>/dev/null; then
+      sleep 2
+      if timeout 5 ls "${STORAGEBOX_MOUNT}/" &>/dev/null 2>&1; then
+        mount_ok=true
+        success "Storage Box remounted successfully"
+      fi
+    fi
+  fi
+
+  if [[ "$mount_ok" == "true" ]]; then
+    export MEDIA_DIR="${STORAGEBOX_MOUNT}/media"
+    export DOWNLOADS_DIR="${STORAGEBOX_MOUNT}/downloads"
+    success "Storage Box healthy — using ${STORAGEBOX_MOUNT} for media"
+  else
+    export MEDIA_DIR="${MEDIA_DIR_LOCAL}"
+    export DOWNLOADS_DIR="${DOWNLOADS_DIR_LOCAL}"
+    echo ""
+    echo -e "${YELLOW}${BOLD}  ⚠  WARNING: Hetzner Storage Box is UNAVAILABLE${NC}"
+    echo -e "${YELLOW}     Falling back to LOCAL storage for media and downloads.${NC}"
+    echo -e "${YELLOW}     Any media on the Storage Box will NOT be visible until${NC}"
+    echo -e "${YELLOW}     the Storage Box is remounted and the stack is restarted.${NC}"
+    echo ""
+    echo -e "     Remount:  ${CYAN}mount ${STORAGEBOX_MOUNT}${NC}"
+    echo -e "     Restart:  ${CYAN}$(realpath "$0")${NC}"
+    echo ""
+  fi
+fi
+
+exec docker compose up -d "$@"
+STARTSCRIPT
+
+  chmod +x scripts/start.sh
+  success "scripts/start.sh generated"
 }
 
 main() {
   print_banner
   check_requirements
   prompt_config
+  prompt_storage_box
   generate_secrets
   write_env
   create_directories
+  setup_storage_box_mount
   process_templates
+  verify_mount_health
   start_stack
+  generate_start_script
   print_summary
 }
 

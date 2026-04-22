@@ -8,7 +8,7 @@ cd ultimate-self-hosted
 ./install.sh
 ```
 
-You will be asked for three things: an admin username, a password, and your domain. Everything else is automated.
+The installer walks you through a short set of prompts — admin credentials, domain, timezone, and optionally a Hetzner Storage Box for media — then generates all secrets, wires up SSO, pulls images, and starts the stack.
 
 ---
 
@@ -218,6 +218,32 @@ flowchart LR
 
 Block all other inbound traffic.
 
+### Hetzner Storage Box (optional)
+
+The installer can mount a Hetzner Storage Box for all media and downloads, keeping large files off the VPS's local SSD. Service config data (Sonarr, Radarr, databases, etc.) stays on local storage where random I/O is fast.
+
+**What goes where:**
+
+| Storage | Content |
+|---|---|
+| Storage Box | `media/` and `downloads/` (movies, TV, music, books, podcasts) |
+| VPS local SSD | Everything else — service configs, databases, Authentik, Nextcloud |
+
+**Requirements:**
+
+- A Hetzner Storage Box in the **same datacenter region** as your VPS (same-region access is via the internal network — fast and free of egress costs)
+- TCP port 445 must not be blocked between the VPS and the Storage Box (it isn't by default on Hetzner's internal network)
+- The installer must run as **root** to write `/etc/fstab` and the credentials file
+
+The installer will:
+1. Install `cifs-utils`
+2. Write credentials to `/root/.storagebox-credentials` (chmod 600)
+3. Mount the Storage Box at `/mnt/storagebox` (or a path you choose)
+4. Create the media subdirectory structure on the box
+5. Add an fstab entry with `_netdev` (waits for network) and `nofail` (never blocks boot if the box is unreachable)
+
+**Boot-time behaviour:** Every time you start the stack via `./scripts/start.sh`, it checks whether the Storage Box is mounted and readable. If it is not, it attempts a remount. If that also fails, it prints a warning and falls back to local storage so services still come up — you just won't see the remote media until the box is remounted and the stack is restarted.
+
 ### DNS Records
 
 Add an A record for each subdomain pointing to your VPS IP **before running the installer** — Traefik needs them to provision SSL certificates.
@@ -289,37 +315,54 @@ cd ultimate-self-hosted
 ```
 
 The installer will prompt for:
-- **Admin username** — used across all services
-- **Admin password** — must be strong; stored in `.env` (never committed)
-- **Domain** — e.g. `example.com` (no `https://`)
 
-It will then generate all secrets, build config files from templates, pull images, and start the stack. First run takes 5–10 minutes.
+| Prompt | Default | Notes |
+|---|---|---|
+| Admin username | — | Used as the login across all services |
+| Admin password | — | Stored in `.env` (never committed); must be strong |
+| Domain | — | e.g. `example.com` — no `https://` |
+| Admin email | `admin@<domain>` | Used by Authentik and Let's Encrypt |
+| Timezone | `America/New_York` | [TZ database name](https://en.wikipedia.org/wiki/List_of_tz_database_time_zones) |
+| Media directory | `./data/media` | Ignored if you choose a Storage Box |
+| PUID / PGID | `1000` / `1000` | Run `id` on the VPS to get your values |
+| Use Hetzner Storage Box? | `N` | If yes: hostname, username, password, mount point |
 
-### Step 3 — Post-Boot Configuration
+The installer generates all secrets, processes config templates, pulls images, and starts the stack. First run takes 5–10 minutes.
 
-Run these after the stack is up. Allow 2–3 minutes for all services to initialize.
+The installer also handles these automatically so you don't have to:
+- **Authentik admin username** — renamed from `akadmin` to whatever you entered, via the Authentik API immediately after first boot
+- **ARR authentication** — Sonarr, Radarr, Lidarr, and Prowlarr are pre-configured with `External` auth so Authentik forward auth is the only gate; no second login screen
 
-**Nextcloud OIDC** (installs and configures the `user_oidc` app automatically):
+After the initial run, `scripts/start.sh` is generated in the project directory. Use it for all subsequent starts — it checks the Storage Box mount health before bringing containers up.
+
+### Step 3 — First-boot checklist
+
+The installer prints this checklist at the end. Work through it top to bottom.
+
+**Run once:**
 ```bash
+# Configure Nextcloud OIDC (installs and wires up the user_oidc app)
 ./scripts/configure-nextcloud-oidc.sh
 ```
 
-**ARR services** — in each of Sonarr, Radarr, Lidarr, Prowlarr:
-> Settings → General → Authentication → **External (Reverse Proxy)**
+**Services with a first-run wizard — complete before using:**
 
-This removes the double-login since Authentik forward auth already protects the route.
+| Service | URL | What to do |
+|---|---|---|
+| Jellyfin | `jellyfin.domain` | Complete setup wizard; add media libraries |
+| Jellyseerr | `requests.domain` | Connect to Jellyfin in setup wizard |
+| Uptime Kuma | `uptime.domain` | Create admin account on first visit |
 
-**qBittorrent** — the temporary admin password is printed in the logs on first boot:
-```bash
-docker compose logs qbittorrent | grep -i "temporary password"
-```
+**Services with a separate login (by design):**
+
+| Service | Credential |
+|---|---|
+| qBittorrent | Temporary password — `docker compose logs qbittorrent \| grep -i "temporary password"` |
+| WireGuard Easy | Admin password you set during install |
 
 **Headscale** — register your first user and generate a pre-auth key:
 ```bash
-# Create a user
 docker compose exec headscale headscale users create youruser
-
-# Generate a reusable key for device enrollment
 docker compose exec headscale headscale preauthkeys create --user youruser --reusable --expiration 24h
 ```
 
@@ -334,6 +377,16 @@ tailscale login --login-server https://headscale.yourdomain.com
 
 ## Operations
 
+### Starting the stack
+
+Always use `scripts/start.sh` rather than `docker compose up -d` directly. It verifies (and if needed remounts) the Storage Box before bringing containers up, so the correct media paths are in place. If you used local storage only, it works identically.
+
+```bash
+./scripts/start.sh
+```
+
+### Day-to-day commands
+
 ```bash
 # View all running containers
 docker compose ps
@@ -344,8 +397,8 @@ docker compose logs -f authentik-server
 # Restart a single service
 docker compose restart sonarr
 
-# Pull latest images and redeploy (zero-downtime for most services)
-docker compose pull && docker compose up -d
+# Pull latest images and redeploy
+docker compose pull && ./scripts/start.sh
 
 # Stop everything
 docker compose down
@@ -353,6 +406,20 @@ docker compose down
 # Stop everything and remove volumes (DESTRUCTIVE — deletes all data)
 docker compose down -v
 ```
+
+### Storage Box — manual remount
+
+If the Storage Box becomes unavailable while the stack is running and you want to restore it without a full restart:
+
+```bash
+# Remount the Storage Box
+mount /mnt/storagebox        # path you chose during install
+
+# Restart only the media-facing services
+docker compose restart jellyfin audiobookshelf navidrome booklore sonarr radarr lidarr qbittorrent
+```
+
+Or do a clean restart via `./scripts/start.sh`, which re-checks the mount automatically.
 
 ---
 
@@ -381,6 +448,25 @@ The Web UI has a security feature that rejects requests where the `Host` header 
 
 **Nextcloud "untrusted domain" error**
 The `NEXTCLOUD_TRUSTED_DOMAINS` env var in `docker-compose.yml` must match your domain exactly. Update `.env` and run `docker compose up -d nextcloud`.
+
+**Storage Box unavailable / media missing**
+If services start but show no media, the Storage Box likely failed to mount and the stack fell back to local storage. Check the output of `./scripts/start.sh` for the warning message. To recover:
+
+```bash
+# Check whether it's mounted
+mountpoint /mnt/storagebox
+
+# Remount manually
+mount /mnt/storagebox
+
+# If that fails, check connectivity and credentials
+mount -v /mnt/storagebox
+
+# Restart the stack so containers pick up the storage box paths
+docker compose down && ./scripts/start.sh
+```
+
+The credentials file is at `/root/.storagebox-credentials`. The fstab entry added during install uses `nofail`, so a missing Storage Box will never prevent the VPS from booting — the stack just falls back silently.
 
 ---
 
