@@ -55,7 +55,7 @@ check_requirements() {
   docker compose version &>/dev/null 2>&1 || missing+=("docker-compose-plugin (v2)")
   command -v curl     &>/dev/null || missing+=("curl")
   command -v openssl  &>/dev/null || missing+=("openssl")
-  command -v python3  &>/dev/null || warn "python3 not found — WireGuard password hash will be skipped"
+  command -v python3  &>/dev/null || true  # python3 optional (used for Authentik API rename)
 
   if [[ ${#missing[@]} -gt 0 ]]; then
     die "Missing required tools: ${missing[*]}"
@@ -134,25 +134,7 @@ generate_secrets() {
   VAULTWARDEN_OIDC_CLIENT_ID="vaultwarden-$(gen_short_id)"
   VAULTWARDEN_OIDC_CLIENT_SECRET=$(gen_secret)
 
-  # WireGuard bcrypt password hash — wg-easy requires this; an empty value
-  # leaves the Web UI completely unprotected on a public IP.
-  WG_PASSWORD_HASH=""
-  if command -v python3 &>/dev/null && python3 -c "import bcrypt" &>/dev/null 2>&1; then
-    WG_PASSWORD_HASH=$(python3 -c "import bcrypt; print(bcrypt.hashpw('${ADMIN_PASSWORD}'.encode(), bcrypt.gensalt(12)).decode())")
-  elif command -v python3 &>/dev/null; then
-    info "bcrypt not found — trying pip install..."
-    python3 -m pip install bcrypt -q 2>/dev/null \
-      && WG_PASSWORD_HASH=$(python3 -c "import bcrypt; print(bcrypt.hashpw('${ADMIN_PASSWORD}'.encode(), bcrypt.gensalt(12)).decode())" 2>/dev/null || true)
-  fi
-  if [[ -z "$WG_PASSWORD_HASH" ]]; then
-    info "pip bcrypt unavailable — trying apt-get install python3-bcrypt..."
-    apt-get install -y -qq python3-bcrypt 2>/dev/null \
-      && WG_PASSWORD_HASH=$(python3 -c "import bcrypt; print(bcrypt.hashpw('${ADMIN_PASSWORD}'.encode(), bcrypt.gensalt(12)).decode())" 2>/dev/null || true)
-  fi
-  if [[ -z "$WG_PASSWORD_HASH" ]]; then
-    warn "Could not generate WireGuard password hash — wg-easy UI will have no second password."
-    warn "The UI is still protected by Authentik forward auth. Install python3-bcrypt for double-auth."
-  fi
+  HOMARR_SECRET_KEY=$(gen_secret)
 
   success "Secrets generated"
 }
@@ -196,6 +178,7 @@ AUTHENTIK_BOOTSTRAP_TOKEN=${AUTHENTIK_BOOTSTRAP_TOKEN}
 # ── OIDC Clients ─────────────────────────────────────────────────
 HOMARR_OIDC_CLIENT_ID=${HOMARR_OIDC_CLIENT_ID}
 HOMARR_OIDC_CLIENT_SECRET=${HOMARR_OIDC_CLIENT_SECRET}
+HOMARR_SECRET_KEY=${HOMARR_SECRET_KEY}
 
 AUDIOBOOKSHELF_OIDC_CLIENT_ID=${AUDIOBOOKSHELF_OIDC_CLIENT_ID}
 AUDIOBOOKSHELF_OIDC_CLIENT_SECRET=${AUDIOBOOKSHELF_OIDC_CLIENT_SECRET}
@@ -209,11 +192,6 @@ GRAFANA_OIDC_CLIENT_SECRET=${GRAFANA_OIDC_CLIENT_SECRET}
 VAULTWARDEN_OIDC_CLIENT_ID=${VAULTWARDEN_OIDC_CLIENT_ID}
 VAULTWARDEN_OIDC_CLIENT_SECRET=${VAULTWARDEN_OIDC_CLIENT_SECRET}
 
-# ── WireGuard Easy ───────────────────────────────────────────────
-WG_HOST=${DOMAIN}
-WG_DEFAULT_DNS=1.1.1.1,1.0.0.1
-WG_MTU=1420
-WG_PASSWORD_HASH=${WG_PASSWORD_HASH}
 EOF
 
   chmod 600 .env
@@ -227,9 +205,7 @@ create_directories() {
     data/traefik
     data/authentik/media
     data/authentik/custom-templates
-    data/homarr/configs
-    data/homarr/data
-    data/homarr/icons
+    data/homarr/appdata
     data/jellyfin/config
     data/jellyfin/cache
     data/jellyseerr
@@ -456,7 +432,7 @@ DONE
   echo -e "  ${BOLD}Services that require a separate login (by design)${NC}"
   echo -e "  [ ] qBittorrent — temp password is in logs:"
   echo -e "      ${CYAN}docker compose logs qbittorrent | grep -i 'temporary password'${NC}"
-  echo -e "  [ ] WireGuard Easy — uses the admin password you set during install"
+  echo -e "  [ ] WireGuard Easy — admin account auto-created with your install credentials"
   echo ""
   echo -e "  ${BOLD}Optional${NC}"
   echo -e "  [ ] Jellyfin OIDC plugin — install from Jellyfin → Dashboard → Plugins → Catalog"

@@ -23,7 +23,7 @@ services:
   # TRAEFIK — Reverse proxy + automatic SSL
   # ──────────────────────────────────────────────────────────────
   traefik:
-    image: traefik:v3.1
+    image: traefik:v3.6
     container_name: traefik
     restart: unless-stopped
     security_opt:
@@ -50,7 +50,7 @@ services:
   # POSTGRESQL — Shared database (Authentik + Nextcloud)
   # ──────────────────────────────────────────────────────────────
   postgres:
-    image: postgres:16-alpine
+    image: postgres:17-alpine
     container_name: postgres
     restart: unless-stopped
     security_opt:
@@ -74,7 +74,7 @@ services:
   # REDIS — Shared cache (Authentik DB0, Nextcloud DB1)
   # ──────────────────────────────────────────────────────────────
   redis:
-    image: redis:7-alpine
+    image: redis:8-alpine
     container_name: redis
     restart: unless-stopped
     command: redis-server --requirepass ${REDIS_PASSWORD} --save 60 1 --loglevel warning
@@ -92,7 +92,7 @@ services:
   # AUTHENTIK — Identity Provider & SSO
   # ──────────────────────────────────────────────────────────────
   authentik-server:
-    image: ghcr.io/goauthentik/server:2024.12
+    image: ghcr.io/goauthentik/server:2026.2.2
     container_name: authentik-server
     restart: unless-stopped
     command: server
@@ -140,7 +140,7 @@ services:
       - "traefik.http.routers.authentik-outpost.priority=10"
 
   authentik-worker:
-    image: ghcr.io/goauthentik/server:2024.12
+    image: ghcr.io/goauthentik/server:2026.2.2
     container_name: authentik-worker
     restart: unless-stopped
     command: worker
@@ -172,12 +172,11 @@ services:
   # HOMARR — Home Dashboard (native OIDC)
   # ──────────────────────────────────────────────────────────────
   homarr:
-    image: ghcr.io/ajnart/homarr:latest
+    image: ghcr.io/homarr-labs/homarr:latest
     container_name: homarr
     restart: unless-stopped
     environment:
-      BASE_URL: "https://home.${DOMAIN}"
-      SECRET: ${AUTHENTIK_SECRET_KEY}
+      SECRET_ENCRYPTION_KEY: ${HOMARR_SECRET_KEY}
       AUTH_PROVIDERS: oidc
       AUTH_OIDC_CLIENT_NAME: Authentik
       AUTH_OIDC_ISSUER: "https://auth.${DOMAIN}/application/o/homarr/"
@@ -186,11 +185,8 @@ services:
       AUTH_OIDC_CALLBACK_URL: "https://home.${DOMAIN}/api/auth/callback/oidc"
       AUTH_OIDC_SCOPE_OVERWRITE: "openid email profile groups"
       AUTH_OIDC_GROUPS_CLAIM: groups
-      AUTH_OIDC_ADMIN_GROUP: authentik Admins
     volumes:
-      - ./data/homarr/configs:/app/data/configs
-      - ./data/homarr/data:/data
-      - ./data/homarr/icons:/app/public/icons
+      - ./data/homarr/appdata:/appdata
       - /var/run/docker.sock:/var/run/docker.sock:ro
     networks:
       - proxy
@@ -450,7 +446,7 @@ services:
   # NEXTCLOUD — File storage & collaboration (native OIDC via user_oidc app)
   # ──────────────────────────────────────────────────────────────
   nextcloud:
-    image: nextcloud:29-apache
+    image: nextcloud:33-apache
     container_name: nextcloud
     restart: unless-stopped
     environment:
@@ -493,7 +489,7 @@ services:
       - "traefik.http.middlewares.nextcloud-redirect.redirectregex.replacement=https://$${1}/remote.php/dav/"
 
   nextcloud-cron:
-    image: nextcloud:29-apache
+    image: nextcloud:33-apache
     container_name: nextcloud-cron
     restart: unless-stopped
     entrypoint: /cron.sh
@@ -553,21 +549,21 @@ services:
   # WIREGUARD EASY — Traditional WireGuard VPN + Web UI (forward auth)
   # ──────────────────────────────────────────────────────────────
   wireguard:
-    image: ghcr.io/wg-easy/wg-easy:latest
+    image: ghcr.io/wg-easy/wg-easy:15
     container_name: wireguard
     restart: unless-stopped
     environment:
-      WG_HOST: ${DOMAIN}
-      PASSWORD_HASH: ${WG_PASSWORD_HASH}
-      WG_DEFAULT_DNS: ${WG_DEFAULT_DNS}
-      WG_MTU: ${WG_MTU}
-      WG_ALLOWED_IPS: "0.0.0.0/0, ::/0"
-      WG_PERSISTENT_KEEPALIVE: "25"
-      WG_DEFAULT_ADDRESS: "10.8.0.x"
-      UI_TRAFFIC_STATS: "true"
-      UI_CHART_TYPE: "1"
+      INIT_ENABLED: "true"
+      INIT_USERNAME: ${ADMIN_USER}
+      INIT_PASSWORD: ${ADMIN_PASSWORD}
+      INIT_HOST: ${DOMAIN}
+      INIT_PORT: "51820"
+      INIT_DNS: "1.1.1.1, 1.0.0.1"
+      INIT_ALLOWED_IPS: "0.0.0.0/0, ::/0"
+      INIT_IPV4_CIDR: "10.8.0.0/24"
     volumes:
       - ./data/wireguard:/etc/wireguard
+      - /lib/modules:/lib/modules:ro
     cap_add:
       - NET_ADMIN
       - SYS_MODULE
@@ -590,7 +586,7 @@ services:
   # UPTIME KUMA — Service uptime monitoring (forward auth)
   # ──────────────────────────────────────────────────────────────
   uptime-kuma:
-    image: louislam/uptime-kuma:1
+    image: louislam/uptime-kuma:2
     container_name: uptime-kuma
     restart: unless-stopped
     volumes:
@@ -640,7 +636,7 @@ services:
       - internal
 
   cadvisor:
-    image: gcr.io/cadvisor/cadvisor:latest
+    image: ghcr.io/google/cadvisor:latest
     container_name: cadvisor
     restart: unless-stopped
     privileged: true
@@ -714,8 +710,6 @@ services:
       SSO_CLIENT_ID: ${VAULTWARDEN_OIDC_CLIENT_ID}
       SSO_CLIENT_SECRET: ${VAULTWARDEN_OIDC_CLIENT_SECRET}
       SSO_PKCE: "true"
-      # WebSocket notifications
-      WEBSOCKET_ENABLED: "true"
     volumes:
       - ./data/vaultwarden:/data
     networks:
@@ -727,9 +721,3 @@ services:
       - "traefik.http.routers.vaultwarden.entrypoints=websecure"
       - "traefik.http.routers.vaultwarden.tls.certresolver=letsencrypt"
       - "traefik.http.services.vaultwarden.loadbalancer.server.port=80"
-      # WebSocket notifications hub
-      - "traefik.http.routers.vaultwarden-ws.rule=Host(`vault.${DOMAIN}`) && Path(`/notifications/hub`)"
-      - "traefik.http.routers.vaultwarden-ws.entrypoints=websecure"
-      - "traefik.http.routers.vaultwarden-ws.tls.certresolver=letsencrypt"
-      - "traefik.http.routers.vaultwarden-ws.service=vaultwarden-ws-svc"
-      - "traefik.http.services.vaultwarden-ws-svc.loadbalancer.server.port=3012"
