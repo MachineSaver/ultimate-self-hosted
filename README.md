@@ -1,6 +1,6 @@
 # Ultimate Self-Hosted Stack
 
-A single-command installer that spins up 20+ self-hosted services on any Linux VPS, fully configured with SSL, SSO, and a unified home dashboard.
+A single-command installer that spins up 25+ self-hosted services on any Linux VPS, fully configured with SSL, SSO, and a unified home dashboard.
 
 ```bash
 git clone https://github.com/MachineSaver/ultimate-self-hosted.git
@@ -53,14 +53,14 @@ flowchart TD
     Internet -->|"TCP :443 — HTTPS + SSL"| Traefik
     Internet -->|"UDP :51820 — WireGuard"| WG["WireGuard Easy"]
 
-    subgraph ingress ["Ingress — Hetzner Firewall + Traefik v3"]
-        Traefik["⚡ Traefik v3\nReverse Proxy · Let's Encrypt SSL · Docker labels"]
+    subgraph ingress ["Ingress — Hetzner Firewall + Traefik v3.6"]
+        Traefik["⚡ Traefik v3.6\nReverse Proxy · Let's Encrypt SSL · Docker labels"]
     end
 
     subgraph sso ["Identity & SSO — Authentik"]
         Authentik["🔐 Authentik\nOIDC Provider · Forward Auth Outpost"]
-        PG[("PostgreSQL 16")]
-        Redis[("Redis 7")]
+        PG[("PostgreSQL 17")]
+        Redis[("Redis 8")]
         Authentik --- PG
         Authentik --- Redis
     end
@@ -314,6 +314,8 @@ cd ultimate-self-hosted
 ./install.sh
 ```
 
+> **Note for Storage Box users:** if you plan to mount a Hetzner Storage Box, run `install.sh` as root (or with `sudo`). The installer writes to `/etc/fstab` and `/root/.storagebox-credentials`, which require root. For local-storage-only installs a regular user in the `docker` group is sufficient.
+
 The installer will prompt for:
 
 | Prompt | Default | Notes |
@@ -352,13 +354,14 @@ The installer prints this checklist at the end. Work through it top to bottom.
 | Jellyfin | `jellyfin.domain` | Complete setup wizard; add media libraries |
 | Jellyseerr | `requests.domain` | Connect to Jellyfin in setup wizard |
 | Uptime Kuma | `uptime.domain` | Create admin account on first visit |
+| Audiobookshelf | `audiobooks.domain` | Settings → Authentication → enable OpenID Connect. Issuer: `https://auth.domain/application/o/audiobookshelf/`. Client ID and secret are in `.env` as `AUDIOBOOKSHELF_OIDC_CLIENT_ID` / `AUDIOBOOKSHELF_OIDC_CLIENT_SECRET` |
 
 **Services with a separate login (by design):**
 
 | Service | Credential |
 |---|---|
 | qBittorrent | Temporary password — `docker compose logs qbittorrent \| grep -i "temporary password"` |
-| WireGuard Easy | Admin password you set during install |
+| WireGuard Easy | Auto-configured with your install credentials (admin username + password) |
 
 **Headscale** — register your first user and generate a pre-auth key:
 ```bash

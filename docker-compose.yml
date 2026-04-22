@@ -602,7 +602,7 @@ services:
       - "traefik.http.routers.uptime-kuma.middlewares=authentik@file"
 
   # ──────────────────────────────────────────────────────────────
-  # PROMETHEUS — Metrics collection (internal only)
+  # PROMETHEUS — Metrics collection (internal + proxy for Traefik/Headscale)
   # ──────────────────────────────────────────────────────────────
   prometheus:
     image: prom/prometheus:latest
@@ -618,6 +618,7 @@ services:
       - prometheus_data:/prometheus
     networks:
       - internal
+      - proxy
 
   node-exporter:
     image: prom/node-exporter:latest
