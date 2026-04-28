@@ -389,6 +389,38 @@ start_stack() {
   success "Stack started"
 }
 
+configure_services() {
+  step "Configuring services"
+
+  local all_ok=true
+
+  run_config_script() {
+    local label="$1" script="$2"
+    info "${label}..."
+    if bash "${script}"; then
+      success "      ${label} — done"
+    else
+      warn "      ${label} failed — re-run: ${script}"
+      all_ok=false
+    fi
+  }
+
+  run_config_script "Nextcloud OIDC"          scripts/configure-nextcloud-oidc.sh
+  run_config_script "Audiobookshelf OIDC"     scripts/configure-audiobookshelf-oidc.sh
+  run_config_script "Uptime Kuma admin"       scripts/configure-uptime-kuma.sh
+  run_config_script "qBittorrent credentials" scripts/configure-qbittorrent.sh
+
+  info "Headscale user + pre-auth key..."
+  bash scripts/configure-headscale.sh || {
+    warn "      Headscale setup failed — re-run: scripts/configure-headscale.sh"
+    all_ok=false
+  }
+
+  [[ "$all_ok" == "true" ]] \
+    && success "All services configured" \
+    || warn "Some configuration steps failed — see warnings above"
+}
+
 print_summary() {
   echo ""
   echo -e "${GREEN}${BOLD}"
@@ -428,39 +460,37 @@ DONE
   echo -e "  ${CYAN}tailscale login --login-server https://headscale.${DOMAIN}${NC}"
   echo ""
 
-  echo -e "${YELLOW}${BOLD}First-boot checklist — do these before considering setup complete:${NC}"
+  echo -e "${YELLOW}${BOLD}First-boot checklist:${NC}"
   echo ""
-  echo -e "  ${BOLD}Infrastructure${NC}"
-  echo -e "  [ ] DNS — wildcard *.${DOMAIN} (or per-subdomain A records) → this server's IP"
-  echo -e "  [ ] Firewall — TCP 80, 443 and UDP 51820 open; all else blocked"
+  echo -e "  ${GREEN}✓ Automatically configured during install:${NC}"
+  echo -e "    • Authentik admin username"
+  echo -e "    • Nextcloud OIDC"
+  echo -e "    • Audiobookshelf OIDC"
+  echo -e "    • Uptime Kuma admin account"
+  echo -e "    • qBittorrent credentials (username: ${ADMIN_USER})"
+  echo -e "    • Headscale user + pre-auth key (printed above)"
+  echo ""
   # STORAGEBOX_HOST is only set when the user opted in; USE_STORAGE_BOX flips to false on mount failure
   if [[ -n "${STORAGEBOX_HOST:-}" && "${USE_STORAGE_BOX}" == "false" ]]; then
-    echo ""
     echo -e "  ${YELLOW}${BOLD}⚠  Storage Box — mount failed during install (using local storage)${NC}"
     echo -e "  [ ] Verify Samba is enabled in Hetzner Robot for ${STORAGEBOX_HOST}"
     echo -e "      Then remount and restart: ${CYAN}mount ${STORAGEBOX_MOUNT} && ./scripts/start.sh${NC}"
+    echo ""
   fi
+  echo -e "  ${BOLD}Still requires manual setup:${NC}"
+  echo -e "  [ ] Jellyfin   https://jellyfin.${DOMAIN}"
+  echo -e "      Complete setup wizard; add media libraries"
+  echo -e "  [ ] Jellyseerr https://requests.${DOMAIN}  (do after Jellyfin)"
+  echo -e "      Connect to Jellyfin in the setup wizard"
   echo ""
-  echo -e "  ${BOLD}One-time scripts${NC}"
-  echo -e "  [ ] Nextcloud OIDC:  ${CYAN}./scripts/configure-nextcloud-oidc.sh${NC}"
+  echo -e "  ${BOLD}Connect Tailscale/Headscale devices:${NC}"
+  echo -e "      ${CYAN}tailscale login --login-server https://headscale.${DOMAIN} --authkey <key above>${NC}"
+  echo -e "      Generate a new key at any time: ${CYAN}./scripts/configure-headscale.sh${NC}"
   echo ""
-  echo -e "  ${BOLD}Services with their own first-run wizard (complete before using)${NC}"
-  echo -e "  [ ] Jellyfin    https://jellyfin.${DOMAIN}    — complete setup wizard; add media libraries"
-  echo -e "  [ ] Jellyseerr  https://requests.${DOMAIN}   — connect to Jellyfin in setup wizard"
-  echo -e "  [ ] Uptime Kuma https://uptime.${DOMAIN}     — create admin account on first visit"
-  echo -e "  [ ] Audiobookshelf https://audiobooks.${DOMAIN}"
-  echo -e "      Settings → Authentication → enable OpenID Connect"
-  echo -e "      Issuer:        https://auth.${DOMAIN}/application/o/audiobookshelf/"
-  echo -e "      Client ID:     \$(grep AUDIOBOOKSHELF_OIDC_CLIENT_ID .env | cut -d= -f2)"
-  echo -e "      Client Secret: \$(grep AUDIOBOOKSHELF_OIDC_CLIENT_SECRET .env | cut -d= -f2)"
-  echo ""
-  echo -e "  ${BOLD}Services that require a separate login (by design)${NC}"
-  echo -e "  [ ] qBittorrent — temp password is in logs:"
-  echo -e "      ${CYAN}docker compose logs qbittorrent | grep -i 'temporary password'${NC}"
-  echo -e "  [ ] WireGuard Easy — admin account auto-created with your install credentials"
-  echo ""
-  echo -e "  ${BOLD}Optional${NC}"
-  echo -e "  [ ] Jellyfin OIDC plugin — install from Jellyfin → Dashboard → Plugins → Catalog"
+  echo -e "  ${BOLD}Optional:${NC}"
+  echo -e "  [ ] Jellyfin OIDC plugin — Dashboard → Plugins → Catalog"
+  echo -e "  [ ] Vaultwarden admin panel — https://vault.${DOMAIN}/admin"
+  echo -e "      Password: AUTHENTIK_BOOTSTRAP_TOKEN from .env"
   echo ""
 
   echo -e "  Start:  ${CYAN}./scripts/start.sh${NC}  (checks Storage Box, then brings stack up)"
@@ -710,6 +740,7 @@ main() {
   process_templates
   verify_mount_health
   start_stack
+  configure_services
   generate_start_script
   print_summary
 }

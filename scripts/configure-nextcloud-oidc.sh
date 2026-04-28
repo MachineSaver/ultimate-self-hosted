@@ -10,8 +10,11 @@ cd "${SCRIPT_DIR}/.."
 [[ -f .env ]] || { echo "ERROR: .env not found. Run install.sh first."; exit 1; }
 source .env
 
-echo "Waiting for Nextcloud to be ready..."
+echo "Waiting for Nextcloud to be ready (first boot can take several minutes)..."
+retries=0
 until docker compose exec -T nextcloud php occ status --output json 2>/dev/null | grep -q '"installed":true'; do
+  retries=$((retries+1))
+  [[ $retries -gt 72 ]] && { echo "ERROR: Nextcloud did not become ready in 6 minutes."; exit 1; }
   sleep 5
 done
 echo "Nextcloud is ready."

@@ -341,42 +341,50 @@ After the initial run, `scripts/start.sh` is generated in the project directory.
 
 ### Step 3 — First-boot checklist
 
-The installer prints this checklist at the end. Work through it top to bottom.
+The installer automatically configures most services at the end of the install run. No manual scripts to run.
 
-**Run once:**
-```bash
-# Configure Nextcloud OIDC (installs and wires up the user_oidc app)
-./scripts/configure-nextcloud-oidc.sh
-```
+**Automatically configured by the installer:**
 
-**Services with a first-run wizard — complete before using:**
-
-| Service | URL | What to do |
-|---|---|---|
-| Jellyfin | `jellyfin.domain` | Complete setup wizard; add media libraries |
-| Jellyseerr | `requests.domain` | Connect to Jellyfin in setup wizard |
-| Uptime Kuma | `uptime.domain` | Create admin account on first visit |
-| Audiobookshelf | `audiobooks.domain` | Settings → Authentication → enable OpenID Connect. Issuer: `https://auth.domain/application/o/audiobookshelf/`. Client ID and secret are in `.env` as `AUDIOBOOKSHELF_OIDC_CLIENT_ID` / `AUDIOBOOKSHELF_OIDC_CLIENT_SECRET` |
-
-**Services with a separate login (by design):**
-
-| Service | Credential |
+| What | Notes |
 |---|---|
-| qBittorrent | Temporary password — `docker compose logs qbittorrent \| grep -i "temporary password"` |
-| WireGuard Easy | Auto-configured with your install credentials (admin username + password) |
+| Authentik admin username | Renamed from `akadmin` to your chosen username |
+| Nextcloud OIDC | `user_oidc` app installed and wired to Authentik |
+| Audiobookshelf OIDC | Root user created; OpenID Connect enabled |
+| Uptime Kuma admin account | Created with your install credentials |
+| qBittorrent credentials | Username + password set to your install credentials |
+| Headscale user + pre-auth key | User created; key printed at end of install |
 
-**Headscale** — register your first user and generate a pre-auth key:
+If any step fails (shown as a warning at install time), re-run the corresponding script:
+
 ```bash
-docker compose exec headscale headscale users create youruser
-docker compose exec headscale headscale preauthkeys create --user youruser --reusable --expiration 24h
+./scripts/configure-nextcloud-oidc.sh
+./scripts/configure-audiobookshelf-oidc.sh
+./scripts/configure-uptime-kuma.sh
+./scripts/configure-qbittorrent.sh
+./scripts/configure-headscale.sh   # also use this to generate new keys
 ```
 
-Then on any device with the Tailscale client:
+**Still requires manual setup — do these in order:**
+
+| Step | Service | URL | What to do |
+|---|---|---|---|
+| 1 | Jellyfin | `jellyfin.domain` | Complete setup wizard; add media libraries |
+| 2 | Jellyseerr | `requests.domain` | Connect to Jellyfin in the setup wizard (do after Jellyfin) |
+
+**Connect Tailscale/Headscale devices:**
+
+Copy the pre-auth key printed at the end of the install, then on each device:
+
 ```bash
-tailscale login --login-server https://headscale.yourdomain.com
+tailscale login --login-server https://headscale.yourdomain.com --authkey <key>
 ```
 
-**Vaultwarden admin panel** — accessible at `https://vault.yourdomain.com/admin` using the `AUTHENTIK_BOOTSTRAP_TOKEN` value from `.env`.
+To generate a new key at any time: `./scripts/configure-headscale.sh`
+
+**Optional:**
+
+- Jellyfin OIDC plugin — install from Jellyfin → Dashboard → Plugins → Catalog
+- Vaultwarden admin panel — `https://vault.yourdomain.com/admin`, password is `AUTHENTIK_BOOTSTRAP_TOKEN` from `.env`
 
 ---
 
