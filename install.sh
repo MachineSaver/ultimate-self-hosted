@@ -164,6 +164,7 @@ DOWNLOADS_DIR_LOCAL=${DOWNLOADS_DIR_LOCAL}
 USE_STORAGE_BOX=${USE_STORAGE_BOX}
 STORAGEBOX_HOST=${STORAGEBOX_HOST}
 STORAGEBOX_USER=${STORAGEBOX_USER}
+STORAGEBOX_SHARE=${STORAGEBOX_SHARE:-backup}
 STORAGEBOX_MOUNT=${STORAGEBOX_MOUNT}
 
 # ── Databases ────────────────────────────────────────────────────
@@ -242,6 +243,9 @@ create_directories() {
   # acme.json must be 600 or Traefik refuses to use it
   touch data/traefik/acme.json
   chmod 600 data/traefik/acme.json
+
+  # Grafana runs as UID/GID 472 — fix ownership so it can write its data dir
+  chown -R 472:472 data/grafana 2>/dev/null || true
 
   # Pre-seed ARR service configs so they start with External auth.
   # Without this they default to Forms auth and show a second login screen
@@ -345,12 +349,16 @@ start_stack() {
 
   if [[ "${ADMIN_USER}" != "akadmin" ]]; then
     info "      Renaming Authentik default user 'akadmin' → '${ADMIN_USER}'..."
-    local user_pk
-    user_pk=$(docker compose exec -T authentik-server \
-      curl -sf \
-        -H "Authorization: Bearer ${AUTHENTIK_BOOTSTRAP_TOKEN}" \
-        "http://localhost:9000/api/v3/core/users/?username=akadmin" \
-      | python3 -c "import sys,json; d=json.load(sys.stdin); print(d['results'][0]['pk'])" 2>/dev/null || true)
+    # Bootstrap writes akadmin AFTER the healthcheck passes — retry until the token is valid
+    local user_pk="" rename_retries=0
+    until [[ -n "$user_pk" ]] || [[ $rename_retries -gt 15 ]]; do
+      user_pk=$(docker compose exec -T authentik-server \
+        curl -sf \
+          -H "Authorization: Bearer ${AUTHENTIK_BOOTSTRAP_TOKEN}" \
+          "http://localhost:9000/api/v3/core/users/?username=akadmin" \
+        | python3 -c "import sys,json; d=json.load(sys.stdin); print(d['results'][0]['pk'])" 2>/dev/null || true)
+      [[ -z "$user_pk" ]] && { rename_retries=$((rename_retries+1)); sleep 3; }
+    done
 
     if [[ -n "$user_pk" ]]; then
       docker compose exec -T authentik-server \
@@ -362,7 +370,7 @@ start_stack() {
         && success "      Authentik admin username set to '${ADMIN_USER}'" \
         || warn "Could not rename akadmin — log in to Authentik as 'akadmin' and rename manually"
     else
-      warn "Could not find akadmin user — log in to Authentik as 'akadmin' and rename manually"
+      warn "Could not find akadmin user after 45s — log in to Authentik as 'akadmin' and rename manually"
     fi
   fi
 
@@ -391,7 +399,6 @@ DONE
   printf "  %-18s → ${BLUE}https://jellyfin.%s${NC}\n"   "Jellyfin"              "${DOMAIN}"
   printf "  %-18s → ${BLUE}https://requests.%s${NC}\n"   "Jellyseerr"            "${DOMAIN}"
   printf "  %-18s → ${BLUE}https://audiobooks.%s${NC}\n" "Audiobookshelf"        "${DOMAIN}"
-  printf "  %-18s → ${BLUE}https://books.%s${NC}\n"      "Booklore"              "${DOMAIN}"
   printf "  %-18s → ${BLUE}https://music.%s${NC}\n"      "Navidrome"             "${DOMAIN}"
   printf "  %-18s → ${BLUE}https://sonarr.%s${NC}\n"     "Sonarr"                "${DOMAIN}"
   printf "  %-18s → ${BLUE}https://radarr.%s${NC}\n"     "Radarr"                "${DOMAIN}"
@@ -420,6 +427,13 @@ DONE
   echo -e "  ${BOLD}Infrastructure${NC}"
   echo -e "  [ ] DNS — wildcard *.${DOMAIN} (or per-subdomain A records) → this server's IP"
   echo -e "  [ ] Firewall — TCP 80, 443 and UDP 51820 open; all else blocked"
+  # STORAGEBOX_HOST is only set when the user opted in; USE_STORAGE_BOX flips to false on mount failure
+  if [[ -n "${STORAGEBOX_HOST:-}" && "${USE_STORAGE_BOX}" == "false" ]]; then
+    echo ""
+    echo -e "  ${YELLOW}${BOLD}⚠  Storage Box — mount failed during install (using local storage)${NC}"
+    echo -e "  [ ] Verify Samba is enabled in Hetzner Robot for ${STORAGEBOX_HOST}"
+    echo -e "      Then remount and restart: ${CYAN}mount ${STORAGEBOX_MOUNT} && ./scripts/start.sh${NC}"
+  fi
   echo ""
   echo -e "  ${BOLD}One-time scripts${NC}"
   echo -e "  [ ] Nextcloud OIDC:  ${CYAN}./scripts/configure-nextcloud-oidc.sh${NC}"
@@ -471,6 +485,10 @@ prompt_storage_box() {
       read -rsp "$(echo -e "${YELLOW}Storage Box password${NC}: ")" STORAGEBOX_PASS; echo
     done
 
+    # For the main Hetzner account the SMB share name is 'backup'; sub-users use their own name
+    read -rp "$(echo -e "${YELLOW}SMB share name${NC} [backup]: ")" _share
+    STORAGEBOX_SHARE="${_share:-backup}"
+
     read -rp "$(echo -e "${YELLOW}Mount point${NC} [/mnt/storagebox]: ")" _mount
     STORAGEBOX_MOUNT="${_mount:-/mnt/storagebox}"
 
@@ -480,7 +498,7 @@ prompt_storage_box() {
     MEDIA_DIR="${STORAGEBOX_MOUNT}/media"
     DOWNLOADS_DIR="${STORAGEBOX_MOUNT}/downloads"
 
-    success "Storage Box configured: //${STORAGEBOX_HOST}/${STORAGEBOX_USER} → ${STORAGEBOX_MOUNT}"
+    success "Storage Box configured: //${STORAGEBOX_HOST}/${STORAGEBOX_SHARE} → ${STORAGEBOX_MOUNT}"
   else
     USE_STORAGE_BOX=false
     MEDIA_DIR="${MEDIA_DIR:-./data/media}"
@@ -502,17 +520,30 @@ setup_storage_box_mount() {
       || die "Failed to install cifs-utils — install it manually and re-run"
   fi
 
+  # Ensure CIFS kernel module is loaded (nls_utf8 not available on all kernels)
+  modprobe cifs 2>/dev/null || true
+
   local creds_file="/root/.storagebox-credentials"
   printf 'username=%s\npassword=%s\n' "${STORAGEBOX_USER}" "${STORAGEBOX_PASS}" > "$creds_file"
   chmod 600 "$creds_file"
 
   mkdir -p "${STORAGEBOX_MOUNT}"
 
-  local share="//${STORAGEBOX_HOST}/${STORAGEBOX_USER}"
+  local share="//${STORAGEBOX_HOST}/${STORAGEBOX_SHARE:-backup}"
   info "Mounting ${share} → ${STORAGEBOX_MOUNT}..."
-  mount -t cifs "$share" "${STORAGEBOX_MOUNT}" \
-    -o "credentials=${creds_file},uid=${PUID},gid=${PGID},iocharset=utf8,vers=3.0" \
-    || die "Mount failed. Verify hostname, credentials, and that TCP 445 is reachable from this server."
+  # iocharset=utf8 omitted — nls_utf8 module absent on many cloud kernels; SMB3 is unicode-native
+  if ! mount -t cifs "$share" "${STORAGEBOX_MOUNT}" \
+    -o "credentials=${creds_file},uid=${PUID},gid=${PGID},vers=3.0"; then
+    warn "Mount failed. Common causes:"
+    warn "  • Samba access not enabled for this Storage Box in Hetzner Robot"
+    warn "  • Wrong credentials or hostname"
+    warn "  • TCP 445 blocked by firewall"
+    warn "Continuing install with local storage. Re-run after fixing Storage Box access."
+    USE_STORAGE_BOX=false
+    MEDIA_DIR="${MEDIA_DIR_LOCAL}"
+    DOWNLOADS_DIR="${DOWNLOADS_DIR_LOCAL}"
+    return 0
+  fi
 
   mkdir -p \
     "${STORAGEBOX_MOUNT}/media/movies" \
@@ -526,7 +557,8 @@ setup_storage_box_mount() {
 
   # _netdev  = wait for network before mounting on boot
   # nofail   = don't halt boot if the Storage Box is unreachable
-  local fstab_entry="${share} ${STORAGEBOX_MOUNT} cifs credentials=${creds_file},uid=${PUID},gid=${PGID},iocharset=utf8,vers=3.0,_netdev,nofail 0 0"
+  local fstab_entry="${share} ${STORAGEBOX_MOUNT} cifs credentials=${creds_file},uid=${PUID},gid=${PGID},vers=3.0,_netdev,nofail 0 0"
+  # STORAGEBOX_SHARE is saved to .env above — start.sh mounts via fstab so it picks up the right share
   if ! grep -qF "${STORAGEBOX_MOUNT}" /etc/fstab; then
     echo "$fstab_entry" >> /etc/fstab
     success "fstab entry added (auto-mounts on reboot with nofail)"

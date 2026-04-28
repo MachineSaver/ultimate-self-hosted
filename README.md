@@ -14,28 +14,28 @@ The installer walks you through a short set of prompts — admin credentials, do
 
 ## Services
 
-| Category | Service | URL | Auth Method |
-|---|---|---|---|
-| **Dashboard** | Homarr | `home.domain` | Native OIDC |
-| **Identity** | Authentik | `auth.domain` | — (is the IdP) |
-| **Media** | Jellyfin | `jellyfin.domain` | Forward Auth |
-| **Media** | Jellyseerr | `requests.domain` | Forward Auth |
-| **Media** | Audiobookshelf | `audiobooks.domain` | Native OIDC |
-| **Media** | Booklore | `books.domain` | Forward Auth |
-| **Media** | Navidrome | `music.domain` | Forward Auth |
+| Category | Service | URL | Auth Method | Notes |
+|---|---|---|---|---|
+| **Dashboard** | Homarr | `home.domain` | Native OIDC | |
+| **Identity** | Authentik | `auth.domain` | — (is the IdP) | |
+| **Media** | Jellyfin | `jellyfin.domain` | Forward Auth | |
+| **Media** | Jellyseerr | `requests.domain` | Forward Auth | |
+| **Media** | Audiobookshelf | `audiobooks.domain` | Native OIDC | |
+| **Media** | Booklore | `books.domain` | Forward Auth | ⚠️ temporarily disabled — see [UNSOLVED_BUGS.md](UNSOLVED_BUGS.md) |
+| **Media** | Navidrome | `music.domain` | Forward Auth | |
 | **Automation** | Sonarr | `sonarr.domain` | Forward Auth |
-| **Automation** | Radarr | `radarr.domain` | Forward Auth |
-| **Automation** | Lidarr | `lidarr.domain` | Forward Auth |
-| **Automation** | Prowlarr | `prowlarr.domain` | Forward Auth |
-| **Downloads** | qBittorrent | `qbit.domain` | Forward Auth |
-| **Cloud** | Nextcloud | `cloud.domain` | Native OIDC |
-| **VPN** | Headscale | `headscale.domain` | Forward Auth (UI) |
-| **VPN** | WireGuard Easy | `vpn.domain` | Forward Auth |
-| **Monitoring** | Uptime Kuma | `uptime.domain` | Forward Auth |
-| **Monitoring** | Grafana | `grafana.domain` | Native OIDC |
-| **Monitoring** | Prometheus | internal only | — |
-| **Security** | Vaultwarden | `vault.domain` | Native OIDC |
-| **Proxy** | Traefik Dashboard | `traefik.domain` | Forward Auth |
+| **Automation** | Radarr | `radarr.domain` | Forward Auth | |
+| **Automation** | Lidarr | `lidarr.domain` | Forward Auth | |
+| **Automation** | Prowlarr | `prowlarr.domain` | Forward Auth | |
+| **Downloads** | qBittorrent | `qbit.domain` | Forward Auth | |
+| **Cloud** | Nextcloud | `cloud.domain` | Native OIDC | |
+| **VPN** | Headscale | `headscale.domain` | Forward Auth (UI) | |
+| **VPN** | WireGuard Easy | `vpn.domain` | Forward Auth | |
+| **Monitoring** | Uptime Kuma | `uptime.domain` | Forward Auth | |
+| **Monitoring** | Grafana | `grafana.domain` | Native OIDC | |
+| **Monitoring** | Prometheus | internal only | — | |
+| **Security** | Vaultwarden | `vault.domain` | Native OIDC | |
+| **Proxy** | Traefik Dashboard | `traefik.domain` | Forward Auth | |
 
 ---
 
@@ -232,6 +232,7 @@ The installer can mount a Hetzner Storage Box for all media and downloads, keepi
 **Requirements:**
 
 - A Hetzner Storage Box in the **same datacenter region** as your VPS (same-region access is via the internal network — fast and free of egress costs)
+- **Samba/SMB access must be enabled** for the Storage Box in [Hetzner Robot](https://robot.hetzner.com) under the Storage Box settings — it is disabled by default
 - TCP port 445 must not be blocked between the VPS and the Storage Box (it isn't by default on Hetzner's internal network)
 - The installer must run as **root** to write `/etc/fstab` and the credentials file
 
@@ -254,7 +255,6 @@ A  auth.yourdomain.com        →  <VPS IP>
 A  jellyfin.yourdomain.com    →  <VPS IP>
 A  requests.yourdomain.com    →  <VPS IP>
 A  audiobooks.yourdomain.com  →  <VPS IP>
-A  books.yourdomain.com       →  <VPS IP>
 A  music.yourdomain.com       →  <VPS IP>
 A  sonarr.yourdomain.com      →  <VPS IP>
 A  radarr.yourdomain.com      →  <VPS IP>
@@ -327,7 +327,8 @@ The installer will prompt for:
 | Timezone | `America/New_York` | [TZ database name](https://en.wikipedia.org/wiki/List_of_tz_database_time_zones) |
 | Media directory | `./data/media` | Ignored if you choose a Storage Box |
 | PUID / PGID | `1000` / `1000` | Run `id` on the VPS to get your values |
-| Use Hetzner Storage Box? | `N` | If yes: hostname, username, password, mount point |
+| Use Hetzner Storage Box? | `N` | If yes: hostname, username, password, SMB share name, mount point |
+| SMB share name | `backup` | Hetzner's default share name for the main account; sub-users use their sub-user name |
 
 The installer generates all secrets, processes config templates, pulls images, and starts the stack. First run takes 5–10 minutes.
 
@@ -419,7 +420,7 @@ If the Storage Box becomes unavailable while the stack is running and you want t
 mount /mnt/storagebox        # path you chose during install
 
 # Restart only the media-facing services
-docker compose restart jellyfin audiobookshelf navidrome booklore sonarr radarr lidarr qbittorrent
+docker compose restart jellyfin audiobookshelf navidrome sonarr radarr lidarr qbittorrent
 ```
 
 Or do a clean restart via `./scripts/start.sh`, which re-checks the mount automatically.

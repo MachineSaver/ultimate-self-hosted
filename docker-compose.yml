@@ -279,6 +279,7 @@ services:
   booklore:
     image: ghcr.io/adityachandelgit/booklore-app:latest
     container_name: booklore
+    profiles: [booklore]
     restart: unless-stopped
     environment:
       TZ: ${TZ}
