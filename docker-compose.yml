@@ -276,20 +276,57 @@ services:
   # ──────────────────────────────────────────────────────────────
   # BOOKLORE — Ebook library (forward auth)
   # ──────────────────────────────────────────────────────────────
-  booklore:
-    image: ghcr.io/adityachandelgit/booklore-app:latest
-    container_name: booklore
-    profiles: [booklore]
+  booklore-db:
+    image: lscr.io/linuxserver/mariadb:11.4.8
+    container_name: booklore-db
     restart: unless-stopped
     environment:
-      TZ: ${TZ}
       PUID: ${PUID}
       PGID: ${PGID}
+      TZ: ${TZ}
+      MYSQL_ROOT_PASSWORD: ${BOOKLORE_DB_ROOT_PASSWORD}
+      MYSQL_DATABASE: booklore
+      MYSQL_USER: booklore
+      MYSQL_PASSWORD: ${BOOKLORE_DB_PASSWORD}
     volumes:
-      - ./data/booklore:/data
+      - ./data/booklore-db:/config
+    networks:
+      - internal
+    healthcheck:
+      test: ["CMD", "mariadb-admin", "ping", "-h", "localhost"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  booklore:
+    image: ghcr.io/the-booklore/booklore:latest
+    container_name: booklore
+    restart: unless-stopped
+    depends_on:
+      booklore-db:
+        condition: service_healthy
+    environment:
+      USER_ID: ${PUID}
+      GROUP_ID: ${PGID}
+      TZ: ${TZ}
+      DATABASE_URL: jdbc:mariadb://booklore-db:3306/booklore
+      DATABASE_USERNAME: booklore
+      DATABASE_PASSWORD: ${BOOKLORE_DB_PASSWORD}
+      SWAGGER_ENABLED: "false"
+      FORCE_DISABLE_OIDC: "false"
+    volumes:
+      - ./data/booklore:/app/data
       - ${MEDIA_DIR}/books:/books
+      - ./data/booklore-bookdrop:/bookdrop
     networks:
       - proxy
+      - internal
+    healthcheck:
+      test: wget -q -O - http://localhost:6060/api/v1/healthcheck
+      interval: 60s
+      retries: 5
+      start_period: 60s
+      timeout: 10s
     labels:
       - "traefik.enable=true"
       - "traefik.http.routers.booklore.rule=Host(`books.${DOMAIN}`)"

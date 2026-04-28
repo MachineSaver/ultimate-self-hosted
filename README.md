@@ -21,7 +21,7 @@ The installer walks you through a short set of prompts — admin credentials, do
 | **Media** | Jellyfin | `jellyfin.domain` | Forward Auth | |
 | **Media** | Jellyseerr | `requests.domain` | Forward Auth | |
 | **Media** | Audiobookshelf | `audiobooks.domain` | Native OIDC | |
-| **Media** | Booklore | `books.domain` | Forward Auth | ⚠️ temporarily disabled — see [UNSOLVED_BUGS.md](UNSOLVED_BUGS.md) |
+| **Media** | Booklore | `books.domain` | Forward Auth | |
 | **Media** | Navidrome | `music.domain` | Forward Auth | |
 | **Automation** | Sonarr | `sonarr.domain` | Forward Auth |
 | **Automation** | Radarr | `radarr.domain` | Forward Auth | |
@@ -255,6 +255,7 @@ A  auth.yourdomain.com        →  <VPS IP>
 A  jellyfin.yourdomain.com    →  <VPS IP>
 A  requests.yourdomain.com    →  <VPS IP>
 A  audiobooks.yourdomain.com  →  <VPS IP>
+A  books.yourdomain.com       →  <VPS IP>
 A  music.yourdomain.com       →  <VPS IP>
 A  sonarr.yourdomain.com      →  <VPS IP>
 A  radarr.yourdomain.com      →  <VPS IP>

@@ -118,6 +118,8 @@ generate_secrets() {
   AUTHENTIK_SECRET_KEY=$(gen_secret)
   AUTHENTIK_BOOTSTRAP_TOKEN=$(gen_secret)
   NEXTCLOUD_DB_PASSWORD=$(gen_secret)
+  BOOKLORE_DB_PASSWORD=$(gen_secret)
+  BOOKLORE_DB_ROOT_PASSWORD=$(gen_secret)
 
   HOMARR_OIDC_CLIENT_ID="homarr-$(gen_short_id)"
   HOMARR_OIDC_CLIENT_SECRET=$(gen_secret)
@@ -171,6 +173,8 @@ STORAGEBOX_MOUNT=${STORAGEBOX_MOUNT}
 POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
 REDIS_PASSWORD=${REDIS_PASSWORD}
 NEXTCLOUD_DB_PASSWORD=${NEXTCLOUD_DB_PASSWORD}
+BOOKLORE_DB_PASSWORD=${BOOKLORE_DB_PASSWORD}
+BOOKLORE_DB_ROOT_PASSWORD=${BOOKLORE_DB_ROOT_PASSWORD}
 
 # ── Authentik ────────────────────────────────────────────────────
 AUTHENTIK_SECRET_KEY=${AUTHENTIK_SECRET_KEY}
@@ -213,6 +217,8 @@ create_directories() {
     data/audiobookshelf/config
     data/audiobookshelf/metadata
     data/booklore
+    data/booklore-db
+    data/booklore-bookdrop
     data/navidrome
     data/sonarr
     data/radarr

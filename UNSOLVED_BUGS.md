@@ -1,38 +1,26 @@
 # Unsolved Bugs
 
+_(No open bugs.)_
+
 ---
 
 ## BUG-001 — Booklore image inaccessible on GHCR
 
-**Status:** Open  
-**Service:** Booklore (`books.<domain>`)  
-**Workaround:** Service excluded from default stack via `profiles: [booklore]` in `docker-compose.yml`
+**Status:** Resolved (2026-04-28)  
+**Service:** Booklore (`books.<domain>`)
 
-### What broke
+### Root cause
 
-`ghcr.io/adityachandelgit/booklore-app:latest` returns `denied` from the registry when `docker compose pull` runs. All image variants tried returned the same error:
+The upstream project moved GitHub organizations. All images under `ghcr.io/adityachandelgit/` became private. The project is now maintained at `github.com/the-booklore/booklore` and publishes to `ghcr.io/the-booklore/booklore:latest`.
 
-- `ghcr.io/adityachandelgit/booklore-app:latest` → `denied`
-- `ghcr.io/adityachandelgit/booklore:latest` → `denied`
-- `ghcr.io/adityachandelgit/booklore-api:latest` → `denied`
-- `ghcr.io/adityachandelgit/booklore-fe:latest` → `denied`
-- `adityachandel21/booklore:latest` (Docker Hub) → `not found`
+The new image also requires a MariaDB sidecar (the old image was self-contained).
 
-The `denied` response (vs `not found`) indicates the packages exist on GHCR but have been made private — likely a visibility change in the upstream project.
+### Fix applied
 
-### What was tried
-
-Manually pulling each image variant above on the target server (`168.119.156.225`, Docker 29.4.1). All failed. No public Docker Hub mirror was found.
-
-### Next likely steps
-
-1. Check the upstream repo at `https://github.com/adityachandelgit/BookLore` for:
-   - Release notes / changelog mentioning an image rename or registry move
-   - The current `docker-compose.yml` in the repo to find the live image reference
-   - Whether a GitHub Packages authentication step is now required
-2. If the project moved to a paid/private model, evaluate a replacement (e.g. Calibre-Web, Kavita)
-3. Once the correct public image is found, update `docker-compose.yml` and remove the `profiles: [booklore]` workaround
-
-### Impact
-
-Booklore is excluded from the stack. All other services are unaffected. The `books.<domain>` subdomain will return a 404 until this is resolved and the profile is removed.
+- Updated image to `ghcr.io/the-booklore/booklore:latest`
+- Added `booklore-db` MariaDB 11.4.8 sidecar service
+- Updated environment variables (`USER_ID`/`GROUP_ID` instead of `PUID`/`PGID`, added DB credentials)
+- Updated volumes (`/app/data` instead of `/data`, added `/bookdrop`)
+- Added `BOOKLORE_DB_PASSWORD` and `BOOKLORE_DB_ROOT_PASSWORD` to `install.sh` secrets and `.env`
+- Added `data/booklore-db` and `data/booklore-bookdrop` to directory creation list
+- Removed `profiles: [booklore]` — service now starts with the rest of the stack
