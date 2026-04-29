@@ -15,9 +15,17 @@ docker compose exec -T headscale headscale users create "${ADMIN_USER}" 2>/dev/n
   || echo "User '${ADMIN_USER}' already exists — skipping creation."
 
 echo "Generating pre-auth key (reusable, 24h)..."
+USER_ID=$(docker compose exec -T headscale headscale users list -o json 2>/dev/null \
+  | python3 -c "import sys,json; users=json.load(sys.stdin); print(next(str(u['id']) for u in users if u['name']=='${ADMIN_USER}'))" 2>/dev/null || true)
+
+if [[ -z "${USER_ID}" ]]; then
+  echo "ERROR: Could not find user '${ADMIN_USER}' in Headscale."
+  exit 1
+fi
+
 KEY=$(docker compose exec -T headscale \
   headscale preauthkeys create \
-    --user "${ADMIN_USER}" \
+    --user "${USER_ID}" \
     --reusable \
     --expiration 24h \
     -o json 2>/dev/null \
