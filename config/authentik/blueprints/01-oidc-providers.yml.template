@@ -23,11 +23,14 @@ entries:
       client_id: "{{HOMARR_OIDC_CLIENT_ID}}"
       client_secret: "{{HOMARR_OIDC_CLIENT_SECRET}}"
       client_type: confidential
-      redirect_uris: "https://home.{{DOMAIN}}/api/auth/callback/oidc"
+      redirect_uris:
+        - url: "https://home.{{DOMAIN}}/api/auth/callback/oidc"
+          matching_mode: strict
       sub_mode: hashed_user_id
       include_claims_in_id_token: true
       issuer_mode: global
       authorization_flow: !Find [authentik_flows.flow, [slug, default-provider-authorization-implicit-consent]]
+      invalidation_flow: !Find [authentik_flows.flow, [slug, default-provider-invalidation-flow]]
       signing_key: !Find [authentik_crypto.certificatekeypair, [name, "authentik Self-signed Certificate"]]
 
   - model: authentik_core.application
@@ -52,11 +55,16 @@ entries:
       client_id: "{{AUDIOBOOKSHELF_OIDC_CLIENT_ID}}"
       client_secret: "{{AUDIOBOOKSHELF_OIDC_CLIENT_SECRET}}"
       client_type: confidential
-      redirect_uris: "https://audiobooks.{{DOMAIN}}/auth/openid/callback\nhttps://audiobooks.{{DOMAIN}}/auth/openid/mobile-redirect"
+      redirect_uris:
+        - url: "https://audiobooks.{{DOMAIN}}/auth/openid/callback"
+          matching_mode: strict
+        - url: "https://audiobooks.{{DOMAIN}}/auth/openid/mobile-redirect"
+          matching_mode: strict
       sub_mode: hashed_user_id
       include_claims_in_id_token: true
       issuer_mode: global
       authorization_flow: !Find [authentik_flows.flow, [slug, default-provider-authorization-implicit-consent]]
+      invalidation_flow: !Find [authentik_flows.flow, [slug, default-provider-invalidation-flow]]
       signing_key: !Find [authentik_crypto.certificatekeypair, [name, "authentik Self-signed Certificate"]]
 
   - model: authentik_core.application
@@ -81,11 +89,14 @@ entries:
       client_id: "{{NEXTCLOUD_OIDC_CLIENT_ID}}"
       client_secret: "{{NEXTCLOUD_OIDC_CLIENT_SECRET}}"
       client_type: confidential
-      redirect_uris: "https://cloud.{{DOMAIN}}/apps/user_oidc/code"
+      redirect_uris:
+        - url: "https://cloud.{{DOMAIN}}/apps/user_oidc/code"
+          matching_mode: strict
       sub_mode: hashed_user_id
       include_claims_in_id_token: true
       issuer_mode: global
       authorization_flow: !Find [authentik_flows.flow, [slug, default-provider-authorization-implicit-consent]]
+      invalidation_flow: !Find [authentik_flows.flow, [slug, default-provider-invalidation-flow]]
       signing_key: !Find [authentik_crypto.certificatekeypair, [name, "authentik Self-signed Certificate"]]
 
   - model: authentik_core.application
@@ -110,11 +121,14 @@ entries:
       client_id: "{{GRAFANA_OIDC_CLIENT_ID}}"
       client_secret: "{{GRAFANA_OIDC_CLIENT_SECRET}}"
       client_type: confidential
-      redirect_uris: "https://grafana.{{DOMAIN}}/login/generic_oauth"
+      redirect_uris:
+        - url: "https://grafana.{{DOMAIN}}/login/generic_oauth"
+          matching_mode: strict
       sub_mode: hashed_user_id
       include_claims_in_id_token: true
       issuer_mode: global
       authorization_flow: !Find [authentik_flows.flow, [slug, default-provider-authorization-implicit-consent]]
+      invalidation_flow: !Find [authentik_flows.flow, [slug, default-provider-invalidation-flow]]
       signing_key: !Find [authentik_crypto.certificatekeypair, [name, "authentik Self-signed Certificate"]]
 
   - model: authentik_core.application
@@ -139,11 +153,14 @@ entries:
       client_id: "{{VAULTWARDEN_OIDC_CLIENT_ID}}"
       client_secret: "{{VAULTWARDEN_OIDC_CLIENT_SECRET}}"
       client_type: confidential
-      redirect_uris: "https://vault.{{DOMAIN}}/identity/connect/oidc-signin"
+      redirect_uris:
+        - url: "https://vault.{{DOMAIN}}/identity/connect/oidc-signin"
+          matching_mode: strict
       sub_mode: hashed_user_id
       include_claims_in_id_token: true
       issuer_mode: global
       authorization_flow: !Find [authentik_flows.flow, [slug, default-provider-authorization-implicit-consent]]
+      invalidation_flow: !Find [authentik_flows.flow, [slug, default-provider-invalidation-flow]]
       signing_key: !Find [authentik_crypto.certificatekeypair, [name, "authentik Self-signed Certificate"]]
 
   - model: authentik_core.application

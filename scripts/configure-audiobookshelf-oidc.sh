@@ -58,11 +58,12 @@ async function main() {
     headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
     body: JSON.stringify({
       authActiveAuthMethods: ['local', 'openid'],
-      authOpenIDIssuer: `https://auth.${ABS_DOMAIN}/application/o/audiobookshelf/`,
+      authOpenIDIssuerURL: `https://auth.${ABS_DOMAIN}/application/o/audiobookshelf/`,
       authOpenIDClientID: ABS_CLIENT_ID,
       authOpenIDClientSecret: ABS_CLIENT_SECRET,
       authOpenIDAutoLaunch: false,
-      authOpenIDAutoRegister: true
+      authOpenIDAutoRegister: true,
+      authOpenIDMatchExistingBy: 'username'
     })
   });
   if (!patch.ok) throw new Error(`Auth settings update failed (${patch.status}): ${await patch.text()}`);
