@@ -47,6 +47,34 @@ step()    { echo -e "\n${BOLD}${BLUE}▶ $*${NC}"; }
 
 die() { error "$*"; exit 1; }
 
+# ── Input validation helpers ──────────────────────────────────────────────────
+# Valid hostname: starts with alnum, only letters/digits/dots/hyphens, has a TLD
+validate_domain()   { [[ "$1" =~ ^[a-zA-Z0-9][a-zA-Z0-9.-]*\.[a-zA-Z]{2,}$ ]]; }
+# Valid POSIX-ish username: alnum/dot/underscore/hyphen, no leading hyphen
+validate_username() { [[ "$1" =~ ^[a-zA-Z0-9][a-zA-Z0-9._-]*$ ]]; }
+# Pragmatic email check: common chars with exactly one @
+validate_email()    { [[ "$1" =~ ^[a-zA-Z0-9._%+@-]+$ ]] && [[ "$1" == *@* ]]; }
+# IANA timezone: letters/digits/underscore/hyphen/slash/plus (e.g. America/New_York)
+validate_tz()       { [[ "$1" =~ ^[A-Za-z0-9/_+-]+$ ]]; }
+# Numeric-only value (PUID/PGID)
+validate_numeric()  { [[ "$1" =~ ^[0-9]+$ ]]; }
+
+# Single-quote a value for safe .env writing.
+# Works with both 'source .env' (bash) and docker compose's own .env parser.
+# Callers must ensure the value contains no embedded single quotes — validate at
+# prompt time so we never reach here with one.
+env_quote() { printf "'%s'" "$1"; }
+
+# Escape characters that are special in a sed replacement string when using |
+# as the delimiter: backslash (must come first), & (means "the match"), and |.
+sed_escape() {
+  local val="$1"
+  val="${val//\\/\\\\}"
+  val="${val//&/\\&}"
+  val="${val//|/\\|}"
+  printf '%s' "$val"
+}
+
 check_requirements() {
   step "Checking requirements"
   local missing=()
@@ -74,37 +102,60 @@ prompt_config() {
   step "Configuration"
   echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 
-  while [[ -z "${ADMIN_USER:-}" ]]; do
+  while true; do
     read -rp "$(echo -e "${YELLOW}Admin username${NC}: ")" ADMIN_USER
+    validate_username "${ADMIN_USER:-}" && break
+    warn "Username must use only letters, digits, dots, underscores, or hyphens (e.g. admin, john.doe)"
   done
 
   while true; do
     read -rsp "$(echo -e "${YELLOW}Admin password${NC}: ")" ADMIN_PASSWORD; echo
     read -rsp "$(echo -e "${YELLOW}Confirm password${NC}: ")" _confirm; echo
-    [[ "$ADMIN_PASSWORD" == "$_confirm" ]] && [[ -n "$ADMIN_PASSWORD" ]] && break
-    warn "Passwords do not match or are empty — try again"
+    [[ "$ADMIN_PASSWORD" == "$_confirm" ]] || { warn "Passwords do not match — try again"; continue; }
+    [[ -n "$ADMIN_PASSWORD" ]]            || { warn "Password cannot be empty"; continue; }
+    [[ "$ADMIN_PASSWORD" != *$'\n'* ]]    || { warn "Password cannot contain newlines"; continue; }
+    [[ "$ADMIN_PASSWORD" != *"'"* ]]      || { warn "Password cannot contain single quotes — please choose a different password"; continue; }
+    break
   done
 
-  while [[ -z "${DOMAIN:-}" ]]; do
+  while true; do
     read -rp "$(echo -e "${YELLOW}Fully qualified domain (e.g. example.com)${NC}: ")" DOMAIN
     # Strip protocol/trailing slash
     DOMAIN="${DOMAIN#https://}"; DOMAIN="${DOMAIN#http://}"; DOMAIN="${DOMAIN%/}"
+    validate_domain "${DOMAIN:-}" && break
+    warn "Domain must be a valid hostname — letters, digits, dots, and hyphens only (e.g. example.com)"
   done
 
-  read -rp "$(echo -e "${YELLOW}Admin email${NC} [admin@${DOMAIN}]: ")" ADMIN_EMAIL
-  ADMIN_EMAIL="${ADMIN_EMAIL:-admin@${DOMAIN}}"
+  while true; do
+    read -rp "$(echo -e "${YELLOW}Admin email${NC} [admin@${DOMAIN}]: ")" ADMIN_EMAIL
+    ADMIN_EMAIL="${ADMIN_EMAIL:-admin@${DOMAIN}}"
+    validate_email "${ADMIN_EMAIL}" && break
+    warn "Email must contain only standard characters (letters, digits, . _ % + - @)"
+  done
 
-  read -rp "$(echo -e "${YELLOW}Timezone${NC} [America/New_York]: ")" TZ
-  TZ="${TZ:-America/New_York}"
+  while true; do
+    read -rp "$(echo -e "${YELLOW}Timezone${NC} [America/New_York]: ")" TZ
+    TZ="${TZ:-America/New_York}"
+    validate_tz "${TZ}" && break
+    warn "Timezone must be an IANA timezone string (e.g. America/New_York, UTC, Europe/London)"
+  done
 
   read -rp "$(echo -e "${YELLOW}Media directory${NC} [./data/media]: ")" MEDIA_DIR
   MEDIA_DIR="${MEDIA_DIR:-./data/media}"
 
-  read -rp "$(echo -e "${YELLOW}PUID${NC} [1000]: ")" PUID
-  PUID="${PUID:-1000}"
+  while true; do
+    read -rp "$(echo -e "${YELLOW}PUID${NC} [1000]: ")" PUID
+    PUID="${PUID:-1000}"
+    validate_numeric "${PUID}" && break
+    warn "PUID must be a numeric user ID"
+  done
 
-  read -rp "$(echo -e "${YELLOW}PGID${NC} [1000]: ")" PGID
-  PGID="${PGID:-1000}"
+  while true; do
+    read -rp "$(echo -e "${YELLOW}PGID${NC} [1000]: ")" PGID
+    PGID="${PGID:-1000}"
+    validate_numeric "${PGID}" && break
+    warn "PGID must be a numeric group ID"
+  done
 
   echo ""
   success "Configuration captured"
@@ -144,6 +195,16 @@ generate_secrets() {
 write_env() {
   step "Writing .env"
 
+  # Pre-quote values that may contain shell-special characters so the file
+  # sources safely (start.sh runs: set -a; source .env; set +a).
+  # Single-quoted format is also understood by docker compose's .env parser.
+  local q_password q_media_dir q_downloads_dir q_media_dir_local q_downloads_dir_local
+  q_password=$(env_quote "${ADMIN_PASSWORD}")
+  q_media_dir=$(env_quote "${MEDIA_DIR}")
+  q_downloads_dir=$(env_quote "${DOWNLOADS_DIR}")
+  q_media_dir_local=$(env_quote "${MEDIA_DIR_LOCAL}")
+  q_downloads_dir_local=$(env_quote "${DOWNLOADS_DIR_LOCAL}")
+
   cat > .env << EOF
 # ================================================================
 # Generated by install.sh — DO NOT COMMIT THIS FILE
@@ -152,15 +213,15 @@ write_env() {
 # ── Core ─────────────────────────────────────────────────────────
 DOMAIN=${DOMAIN}
 ADMIN_USER=${ADMIN_USER}
-ADMIN_PASSWORD=${ADMIN_PASSWORD}
+ADMIN_PASSWORD=${q_password}
 ADMIN_EMAIL=${ADMIN_EMAIL}
 TZ=${TZ}
 PUID=${PUID}
 PGID=${PGID}
-MEDIA_DIR=${MEDIA_DIR}
-DOWNLOADS_DIR=${DOWNLOADS_DIR}
-MEDIA_DIR_LOCAL=${MEDIA_DIR_LOCAL}
-DOWNLOADS_DIR_LOCAL=${DOWNLOADS_DIR_LOCAL}
+MEDIA_DIR=${q_media_dir}
+DOWNLOADS_DIR=${q_downloads_dir}
+MEDIA_DIR_LOCAL=${q_media_dir_local}
+DOWNLOADS_DIR_LOCAL=${q_downloads_dir_local}
 
 # ── Storage Box ───────────────────────────────────────────────────
 USE_STORAGE_BOX=${USE_STORAGE_BOX}
@@ -281,12 +342,19 @@ create_directories() {
 process_templates() {
   step "Processing configuration templates"
 
+  # User-provided values need sed_escape; generated hex secrets are safe as-is.
+  local e_domain e_admin_user e_admin_email e_tz
+  e_domain=$(sed_escape "${DOMAIN}")
+  e_admin_user=$(sed_escape "${ADMIN_USER}")
+  e_admin_email=$(sed_escape "${ADMIN_EMAIL}")
+  e_tz=$(sed_escape "${TZ}")
+
   find config -name "*.template" | while read -r tmpl; do
     local output="${tmpl%.template}"
     sed \
-      -e "s|{{DOMAIN}}|${DOMAIN}|g" \
-      -e "s|{{ADMIN_USER}}|${ADMIN_USER}|g" \
-      -e "s|{{ADMIN_EMAIL}}|${ADMIN_EMAIL}|g" \
+      -e "s|{{DOMAIN}}|${e_domain}|g" \
+      -e "s|{{ADMIN_USER}}|${e_admin_user}|g" \
+      -e "s|{{ADMIN_EMAIL}}|${e_admin_email}|g" \
       -e "s|{{POSTGRES_PASSWORD}}|${POSTGRES_PASSWORD}|g" \
       -e "s|{{REDIS_PASSWORD}}|${REDIS_PASSWORD}|g" \
       -e "s|{{AUTHENTIK_SECRET_KEY}}|${AUTHENTIK_SECRET_KEY}|g" \
@@ -302,7 +370,7 @@ process_templates() {
       -e "s|{{VAULTWARDEN_OIDC_CLIENT_ID}}|${VAULTWARDEN_OIDC_CLIENT_ID}|g" \
       -e "s|{{VAULTWARDEN_OIDC_CLIENT_SECRET}}|${VAULTWARDEN_OIDC_CLIENT_SECRET}|g" \
       -e "s|{{NEXTCLOUD_DB_PASSWORD}}|${NEXTCLOUD_DB_PASSWORD}|g" \
-      -e "s|{{TZ}}|${TZ}|g" \
+      -e "s|{{TZ}}|${e_tz}|g" \
       "$tmpl" > "$output"
     info "  $(basename "$tmpl") → $(basename "$output")"
   done
@@ -505,16 +573,23 @@ prompt_storage_box() {
   if [[ "${_use_sb,,}" == "y" ]]; then
     USE_STORAGE_BOX=true
 
-    while [[ -z "${STORAGEBOX_HOST:-}" ]]; do
+    while true; do
       read -rp "$(echo -e "${YELLOW}Storage Box hostname${NC} (e.g. u123456.your-storagebox.de): ")" STORAGEBOX_HOST
+      validate_domain "${STORAGEBOX_HOST:-}" && break
+      warn "Hostname must be a valid domain name (e.g. u123456.your-storagebox.de)"
     done
 
-    while [[ -z "${STORAGEBOX_USER:-}" ]]; do
+    while true; do
       read -rp "$(echo -e "${YELLOW}Storage Box username${NC} (e.g. u123456): ")" STORAGEBOX_USER
+      validate_username "${STORAGEBOX_USER:-}" && break
+      warn "Username must use only letters, digits, dots, underscores, or hyphens"
     done
 
-    while [[ -z "${STORAGEBOX_PASS:-}" ]]; do
+    while true; do
       read -rsp "$(echo -e "${YELLOW}Storage Box password${NC}: ")" STORAGEBOX_PASS; echo
+      [[ -n "$STORAGEBOX_PASS" ]]         || { warn "Password cannot be empty"; continue; }
+      [[ "$STORAGEBOX_PASS" != *$'\n'* ]] || { warn "Password cannot contain newlines"; continue; }
+      break
     done
 
     # For the main Hetzner account the SMB share name is 'backup'; sub-users use their own name

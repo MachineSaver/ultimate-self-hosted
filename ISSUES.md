@@ -16,7 +16,7 @@ Current bug and risk tracker for the stack.
 
 ## ISSUE-002 - Raw `.env` writing and template substitution are unsafe for special characters
 
-**Status:** Open  
+**Status:** Fixed  
 **Severity:** High  
 **Area:** Configuration generation
 
