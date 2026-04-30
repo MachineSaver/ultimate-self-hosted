@@ -52,7 +52,7 @@ Several services use `:latest` tags.
 
 ## ISSUE-005 - Some Traefik middlewares are defined but not applied
 
-**Status:** Open  
+**Status:** Fixed  
 **Severity:** Medium  
 **Area:** Reverse proxy configuration
 

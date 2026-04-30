@@ -31,6 +31,10 @@ entryPoints:
     http:
       tls:
         certResolver: letsencrypt
+      middlewares:
+        - secure-headers@file
+        - rate-limit@file
+        - compress@file
     # Enable HTTP/3
     http3: {}
 

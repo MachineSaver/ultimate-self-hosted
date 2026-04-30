@@ -21,7 +21,7 @@ http:
           - X-authentik-meta-version
 
     # ──────────────────────────────────────────────────────────
-    # secure-headers — applied globally via entrypoint in traefik.yml
+    # secure-headers — applied globally via websecure entrypoint in traefik.yml.template
     # ──────────────────────────────────────────────────────────
     secure-headers:
       headers:
