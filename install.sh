@@ -344,11 +344,7 @@ start_stack() {
   retries=0
   until docker compose exec -T authentik-server /lifecycle/ak healthcheck &>/dev/null 2>&1; do
     retries=$((retries+1))
-    [[ $retries -gt 60 ]] && {
-      warn "Authentik is taking longer than expected. Check: docker compose logs authentik-server"
-      warn "You can run 'docker compose up -d' manually once Authentik is ready."
-      return 0
-    }
+    [[ $retries -gt 60 ]] && die "Authentik did not become healthy after ~3 minutes. Check: docker compose logs authentik-server"
     sleep 3
   done
   success "      Authentik ready"
