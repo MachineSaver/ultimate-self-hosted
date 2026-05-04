@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Sets qBittorrent WebUI credentials to match the install admin credentials.
-# Called automatically by install.sh; only works once (temp password is single-use).
+# Called automatically by install.sh; safe to re-run if credentials are already set.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -18,42 +18,104 @@ until docker compose exec -T qbittorrent curl -sf http://localhost:8080 >/dev/nu
   sleep 5
 done
 
+echo "Checking whether qBittorrent already accepts the desired credentials..."
+if docker compose exec -T \
+  -e QBIT_ADMIN_USER="${ADMIN_USER}" \
+  -e QBIT_ADMIN_PASSWORD="${ADMIN_PASSWORD}" \
+  qbittorrent bash -s <<'BASH' >/dev/null 2>&1
+set -euo pipefail
+result=$(curl -sf \
+  --header 'Referer: http://localhost:8080' \
+  --data-urlencode "username=${QBIT_ADMIN_USER}" \
+  --data-urlencode "password=${QBIT_ADMIN_PASSWORD}" \
+  http://localhost:8080/api/v2/auth/login)
+[[ "${result}" == 'Ok.' ]]
+BASH
+then
+  echo "qBittorrent credentials already match desired admin credentials."
+  exit 0
+fi
+
 QBIT_TEMP=$(docker compose logs qbittorrent 2>/dev/null \
   | grep -i "temporary password" | tail -1 \
   | rev | cut -d' ' -f1 | rev | tr -d '[:space:]' || true)
 
 if [[ -z "${QBIT_TEMP}" ]]; then
-  echo "No temporary password found — credentials may already have been set. Skipping."
-  exit 0
+  echo "ERROR: qBittorrent does not accept desired credentials, and no temporary password was found in logs."
+  echo "Re-run after a fresh qBittorrent initialization or set the WebUI credentials manually."
+  exit 1
 fi
 
 echo "Setting qBittorrent credentials..."
-result=$(docker compose exec -T qbittorrent bash -c "
-  sid=\$(curl -sf \
-    --header 'Referer: http://localhost:8080' \
-    --data 'username=admin&password=${QBIT_TEMP}' \
-    http://localhost:8080/api/v2/auth/login)
-  if [[ \"\${sid}\" != 'Ok.' ]]; then
-    echo 'LOGIN_FAILED'
-    exit 0
-  fi
-  # Re-login using cookie jar so subsequent call is authenticated
-  curl -sf \
-    --header 'Referer: http://localhost:8080' \
-    --data 'username=admin&password=${QBIT_TEMP}' \
-    --cookie-jar /tmp/qbt.txt \
-    http://localhost:8080/api/v2/auth/login >/dev/null
-  curl -sf \
-    --header 'Referer: http://localhost:8080' \
-    --cookie /tmp/qbt.txt \
-    --data 'json={\"web_ui_username\":\"${ADMIN_USER}\",\"web_ui_password\":\"${ADMIN_PASSWORD}\"}' \
-    http://localhost:8080/api/v2/app/setPreferences
-  echo 'OK'
-")
+result=$(docker compose exec -T \
+  -e QBIT_TEMP="${QBIT_TEMP}" \
+  -e QBIT_ADMIN_USER="${ADMIN_USER}" \
+  -e QBIT_ADMIN_PASSWORD="${ADMIN_PASSWORD}" \
+  qbittorrent bash -s <<'BASH'
+set -euo pipefail
 
-if [[ "${result}" == "LOGIN_FAILED" ]]; then
-  echo "Login with temporary password failed — credentials may already have been set. Skipping."
+json_escape() {
+  local val="$1"
+  val="${val//\\/\\\\}"
+  val="${val//\"/\\\"}"
+  val="${val//$'\n'/\\n}"
+  val="${val//$'\r'/\\r}"
+  val="${val//$'\t'/\\t}"
+  printf '%s' "$val"
+}
+
+sid=$(curl -sf \
+  --header 'Referer: http://localhost:8080' \
+  --data-urlencode "username=admin" \
+  --data-urlencode "password=${QBIT_TEMP}" \
+  http://localhost:8080/api/v2/auth/login)
+
+if [[ "${sid}" != 'Ok.' ]]; then
+  echo 'LOGIN_FAILED'
   exit 0
 fi
 
-echo "Done! qBittorrent credentials set (username: ${ADMIN_USER})."
+curl -sf \
+  --header 'Referer: http://localhost:8080' \
+  --data-urlencode "username=admin" \
+  --data-urlencode "password=${QBIT_TEMP}" \
+  --cookie-jar /tmp/qbt.txt \
+  http://localhost:8080/api/v2/auth/login >/dev/null
+
+prefs=$(printf '{"web_ui_username":"%s","web_ui_password":"%s"}' \
+  "$(json_escape "${QBIT_ADMIN_USER}")" \
+  "$(json_escape "${QBIT_ADMIN_PASSWORD}")")
+
+curl -sf \
+  --header 'Referer: http://localhost:8080' \
+  --cookie /tmp/qbt.txt \
+  --data-urlencode "json=${prefs}" \
+  http://localhost:8080/api/v2/app/setPreferences
+
+echo 'OK'
+BASH
+)
+
+if [[ "${result}" == "LOGIN_FAILED" ]]; then
+  echo "ERROR: Login with qBittorrent temporary password failed, and desired credentials are not active."
+  exit 1
+fi
+
+if docker compose exec -T \
+  -e QBIT_ADMIN_USER="${ADMIN_USER}" \
+  -e QBIT_ADMIN_PASSWORD="${ADMIN_PASSWORD}" \
+  qbittorrent bash -s <<'BASH' >/dev/null 2>&1
+set -euo pipefail
+result=$(curl -sf \
+  --header 'Referer: http://localhost:8080' \
+  --data-urlencode "username=${QBIT_ADMIN_USER}" \
+  --data-urlencode "password=${QBIT_ADMIN_PASSWORD}" \
+  http://localhost:8080/api/v2/auth/login)
+[[ "${result}" == 'Ok.' ]]
+BASH
+then
+  echo "Done! qBittorrent credentials set (username: ${ADMIN_USER})."
+else
+  echo "ERROR: qBittorrent credential verification failed after update."
+  exit 1
+fi

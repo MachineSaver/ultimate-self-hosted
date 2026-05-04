@@ -129,6 +129,7 @@ services:
       - "traefik.http.routers.authentik.rule=Host(`auth.${DOMAIN}`)"
       - "traefik.http.routers.authentik.entrypoints=websecure"
       - "traefik.http.routers.authentik.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.authentik.service=authentik"
       - "traefik.http.services.authentik.loadbalancer.server.port=9000"
       # Outpost endpoint — must be reachable on all protected subdomains for
       # the forward-auth cookie flow to redirect correctly
@@ -201,7 +202,7 @@ services:
   # JELLYFIN — Media server (forward auth; enable OIDC plugin separately)
   # ──────────────────────────────────────────────────────────────
   jellyfin:
-    image: jellyfin/jellyfin:latest
+    image: jellyfin/jellyfin:10.10.7
     container_name: jellyfin
     restart: unless-stopped
     environment:
@@ -228,7 +229,7 @@ services:
   # JELLYSEERR — Media request management (forward auth)
   # ──────────────────────────────────────────────────────────────
   jellyseerr:
-    image: fallenbagel/jellyseerr:latest
+    image: fallenbagel/jellyseerr:2.7.3
     container_name: jellyseerr
     restart: unless-stopped
     environment:
@@ -252,7 +253,7 @@ services:
   # AUDIOBOOKSHELF — Audiobooks & podcasts (native OIDC)
   # ──────────────────────────────────────────────────────────────
   audiobookshelf:
-    image: ghcr.io/advplyr/audiobookshelf:latest
+    image: ghcr.io/advplyr/audiobookshelf:2.34.0
     container_name: audiobookshelf
     restart: unless-stopped
     environment:
@@ -339,7 +340,7 @@ services:
   # NAVIDROME — Music streaming (forward auth + header passthrough)
   # ──────────────────────────────────────────────────────────────
   navidrome:
-    image: deluan/navidrome:latest
+    image: deluan/navidrome:0.61.2
     container_name: navidrome
     restart: unless-stopped
     user: "${PUID}:${PGID}"
@@ -368,7 +369,7 @@ services:
   # ARR STACK — Media management (forward auth; set Auth=External in UI)
   # ──────────────────────────────────────────────────────────────
   sonarr:
-    image: lscr.io/linuxserver/sonarr:latest
+    image: lscr.io/linuxserver/sonarr:4.0.17.2952-ls309
     container_name: sonarr
     restart: unless-stopped
     environment:
@@ -390,7 +391,7 @@ services:
       - "traefik.http.routers.sonarr.middlewares=authentik@file"
 
   radarr:
-    image: lscr.io/linuxserver/radarr:latest
+    image: lscr.io/linuxserver/radarr:6.1.1.10360-ls300
     container_name: radarr
     restart: unless-stopped
     environment:
@@ -412,7 +413,7 @@ services:
       - "traefik.http.routers.radarr.middlewares=authentik@file"
 
   lidarr:
-    image: lscr.io/linuxserver/lidarr:latest
+    image: lscr.io/linuxserver/lidarr:3.1.0.4875-ls26
     container_name: lidarr
     restart: unless-stopped
     environment:
@@ -434,7 +435,7 @@ services:
       - "traefik.http.routers.lidarr.middlewares=authentik@file"
 
   prowlarr:
-    image: lscr.io/linuxserver/prowlarr:latest
+    image: lscr.io/linuxserver/prowlarr:2.3.5.5327-ls144
     container_name: prowlarr
     restart: unless-stopped
     environment:
@@ -457,7 +458,7 @@ services:
   # QBITTORRENT — Download client (forward auth)
   # ──────────────────────────────────────────────────────────────
   qbittorrent:
-    image: lscr.io/linuxserver/qbittorrent:latest
+    image: lscr.io/linuxserver/qbittorrent:5.1.4-r3-ls452
     container_name: qbittorrent
     restart: unless-stopped
     environment:
@@ -542,7 +543,7 @@ services:
   # HEADSCALE — Self-hosted Tailscale control server
   # ──────────────────────────────────────────────────────────────
   headscale:
-    image: headscale/headscale:latest
+    image: headscale/headscale:0.28.0
     container_name: headscale
     restart: unless-stopped
     command: serve
@@ -557,10 +558,11 @@ services:
       - "traefik.http.routers.headscale.rule=Host(`headscale.${DOMAIN}`)"
       - "traefik.http.routers.headscale.entrypoints=websecure"
       - "traefik.http.routers.headscale.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.headscale.service=headscale"
       - "traefik.http.services.headscale.loadbalancer.server.port=8080"
       - "traefik.http.routers.headscale.priority=1"
       # gRPC needs h2c (cleartext HTTP/2) to Headscale internally
-      - "traefik.http.routers.headscale-grpc.rule=Host(`headscale.${DOMAIN}`) && Headers(`Content-Type`, `application/grpc`)"
+      - "traefik.http.routers.headscale-grpc.rule=Host(`headscale.${DOMAIN}`) && Header(`Content-Type`, `application/grpc`)"
       - "traefik.http.routers.headscale-grpc.entrypoints=websecure"
       - "traefik.http.routers.headscale-grpc.tls.certresolver=letsencrypt"
       - "traefik.http.routers.headscale-grpc.service=headscale-grpc-svc"
@@ -569,7 +571,7 @@ services:
       - "traefik.http.services.headscale-grpc-svc.loadbalancer.server.scheme=h2c"
 
   headscale-ui:
-    image: ghcr.io/gurucomputing/headscale-ui:latest
+    image: ghcr.io/gurucomputing/headscale-ui:2026.03.17
     container_name: headscale-ui
     restart: unless-stopped
     networks:
@@ -624,7 +626,7 @@ services:
   # UPTIME KUMA — Service uptime monitoring (forward auth)
   # ──────────────────────────────────────────────────────────────
   uptime-kuma:
-    image: louislam/uptime-kuma:2
+    image: louislam/uptime-kuma:2.2.1
     container_name: uptime-kuma
     restart: unless-stopped
     volumes:
@@ -643,7 +645,7 @@ services:
   # PROMETHEUS — Metrics collection (internal + proxy for Traefik/Headscale)
   # ──────────────────────────────────────────────────────────────
   prometheus:
-    image: prom/prometheus:latest
+    image: prom/prometheus:v3.11.3
     container_name: prometheus
     restart: unless-stopped
     command:
@@ -659,7 +661,7 @@ services:
       - proxy
 
   node-exporter:
-    image: prom/node-exporter:latest
+    image: quay.io/prometheus/node-exporter:v1.10.2
     container_name: node-exporter
     restart: unless-stopped
     command:
@@ -675,7 +677,7 @@ services:
       - internal
 
   cadvisor:
-    image: ghcr.io/google/cadvisor:latest
+    image: gcr.io/cadvisor/cadvisor:v0.52.1
     container_name: cadvisor
     restart: unless-stopped
     privileged: true
@@ -692,7 +694,7 @@ services:
   # GRAFANA — Metrics dashboards (native OIDC)
   # ──────────────────────────────────────────────────────────────
   grafana:
-    image: grafana/grafana:latest
+    image: grafana/grafana:13.0.1
     container_name: grafana
     restart: unless-stopped
     user: "472"
@@ -734,7 +736,7 @@ services:
   # VAULTWARDEN — Password manager (native OIDC SSO)
   # ──────────────────────────────────────────────────────────────
   vaultwarden:
-    image: vaultwarden/server:latest
+    image: vaultwarden/server:1.35.8
     container_name: vaultwarden
     restart: unless-stopped
     environment:

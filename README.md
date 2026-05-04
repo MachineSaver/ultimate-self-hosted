@@ -348,8 +348,12 @@ The installer automatically configures most services at the end of the install r
 | What | Notes |
 |---|---|
 | Authentik admin username | Renamed from `akadmin` to your chosen username |
+| Authentik Homarr OIDC | Homarr provider/application created in Authentik; group claim enabled |
 | Nextcloud OIDC | `user_oidc` app installed and wired to Authentik |
 | Audiobookshelf OIDC | Root user created; OpenID Connect enabled |
+| Homarr first run | External admin group `homarr-admins` created in Homarr; onboarding completed |
+| Jellyfin first run | Admin user created; default media libraries added when paths exist |
+| Jellyseerr first run | Connected to Jellyfin; Jellyfin libraries synced and enabled |
 | Uptime Kuma admin account | Created with your install credentials |
 | qBittorrent credentials | Username + password set to your install credentials |
 | Headscale user + pre-auth key | User created; key printed at end of install |
@@ -359,17 +363,22 @@ If any step fails (shown as a warning at install time), re-run the corresponding
 ```bash
 ./scripts/configure-nextcloud-oidc.sh
 ./scripts/configure-audiobookshelf-oidc.sh
+./scripts/configure-authentik-homarr-oidc.sh
+./scripts/configure-homarr.sh
+./scripts/configure-jellyfin.sh
+./scripts/configure-jellyseerr.sh
 ./scripts/configure-uptime-kuma.sh
 ./scripts/configure-qbittorrent.sh
 ./scripts/configure-headscale.sh   # also use this to generate new keys
 ```
 
-**Still requires manual setup — do these in order:**
+Jellyseerr uses `JELLYFIN_ADMIN_USER` / `JELLYFIN_ADMIN_PASSWORD` from `.env` to connect to Jellyfin. Fresh installs default these to the main admin credentials; override them only if Jellyfin was initialized manually with different credentials.
+
+**Still requires manual setup:**
 
 | Step | Service | URL | What to do |
 |---|---|---|---|
-| 1 | Jellyfin | `jellyfin.domain` | Complete setup wizard; add media libraries |
-| 2 | Jellyseerr | `requests.domain` | Connect to Jellyfin in the setup wizard (do after Jellyfin) |
+| 1 | Homarr | `home.domain` | Create your first dashboard/layout |
 
 **Connect Tailscale/Headscale devices:**
 

@@ -10,26 +10,48 @@ cd "${SCRIPT_DIR}/.."
 # shellcheck source=/dev/null
 set -a; source .env; set +a
 
+echo "Waiting for Headscale to be ready..."
+retries=0
+until docker compose exec -T headscale headscale version >/dev/null 2>&1; do
+  retries=$((retries+1))
+  [[ $retries -gt 24 ]] && { echo "ERROR: Headscale did not become ready in 2 minutes."; exit 1; }
+  sleep 5
+done
+
 echo "Creating Headscale user '${ADMIN_USER}'..."
 docker compose exec -T headscale headscale users create "${ADMIN_USER}" 2>/dev/null \
   || echo "User '${ADMIN_USER}' already exists — skipping creation."
 
-echo "Generating pre-auth key (reusable, 24h)..."
 USER_ID=$(docker compose exec -T headscale headscale users list -o json 2>/dev/null \
-  | python3 -c "import sys,json; users=json.load(sys.stdin); print(next(str(u['id']) for u in users if u['name']=='${ADMIN_USER}'))" 2>/dev/null || true)
+  | awk -v name="${ADMIN_USER}" '
+      /"id":/ {
+        id = $0
+        gsub(/[^0-9]/, "", id)
+      }
+      /"name":/ {
+        user = $0
+        sub(/^[[:space:]]*"name":[[:space:]]*"/, "", user)
+        sub(/",?[[:space:]]*$/, "", user)
+        if (user == name) {
+          print id
+          exit
+        }
+      }
+    ' || true)
 
 if [[ -z "${USER_ID}" ]]; then
-  echo "ERROR: Could not find user '${ADMIN_USER}' in Headscale."
+  echo "ERROR: Headscale user '${ADMIN_USER}' was not found after configuration."
   exit 1
 fi
 
+echo "Generating pre-auth key (reusable, 24h)..."
 KEY=$(docker compose exec -T headscale \
   headscale preauthkeys create \
     --user "${USER_ID}" \
     --reusable \
     --expiration 24h \
     -o json 2>/dev/null \
-  | python3 -c "import sys,json; print(json.load(sys.stdin).get('key',''))" 2>/dev/null || true)
+  | tr -d '[:space:]' | grep -o '"key":"[^"]*"' | cut -d'"' -f4 || true)
 
 if [[ -z "${KEY}" ]]; then
   echo "ERROR: Could not generate pre-auth key."

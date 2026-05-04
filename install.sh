@@ -83,7 +83,6 @@ check_requirements() {
   docker compose version &>/dev/null 2>&1 || missing+=("docker-compose-plugin (v2)")
   command -v curl     &>/dev/null || missing+=("curl")
   command -v openssl  &>/dev/null || missing+=("openssl")
-  command -v python3  &>/dev/null || true  # python3 optional (used for Authentik API rename)
 
   if [[ ${#missing[@]} -gt 0 ]]; then
     die "Missing required tools: ${missing[*]}"
@@ -222,6 +221,16 @@ MEDIA_DIR=${q_media_dir}
 DOWNLOADS_DIR=${q_downloads_dir}
 MEDIA_DIR_LOCAL=${q_media_dir_local}
 DOWNLOADS_DIR_LOCAL=${q_downloads_dir_local}
+
+# ── App First-Run Defaults ───────────────────────────────────────
+HOMARR_ADMIN_GROUP=homarr-admins
+JELLYFIN_SERVER_NAME=Jellyfin
+JELLYFIN_ADMIN_USER=${ADMIN_USER}
+JELLYFIN_ADMIN_PASSWORD=${q_password}
+JELLYFIN_MOVIES_DIR=/media/movies
+JELLYFIN_TV_DIR=/media/tv
+JELLYFIN_MUSIC_DIR=/media/music
+JELLYFIN_BOOKS_DIR=/media/books
 
 # ── Storage Box ───────────────────────────────────────────────────
 USE_STORAGE_BOX=${USE_STORAGE_BOX}
@@ -382,7 +391,10 @@ start_stack() {
   step "Starting the stack"
 
   info "[1/5] Pulling images (this may take several minutes)..."
-  docker compose pull --quiet
+  if ! docker compose pull --quiet; then
+    warn "Some image pulls failed. Continuing with locally cached images where available."
+    warn "If startup fails with a missing image, authenticate to the registry or retry later."
+  fi
 
   info "[2/5] Starting databases..."
   docker compose up -d postgres redis
@@ -426,7 +438,7 @@ start_stack() {
         curl -sf \
           -H "Authorization: Bearer ${AUTHENTIK_BOOTSTRAP_TOKEN}" \
           "http://localhost:9000/api/v3/core/users/?username=akadmin" \
-        | python3 -c "import sys,json; d=json.load(sys.stdin); print(d['results'][0]['pk'])" 2>/dev/null || true)
+        2>/dev/null | grep -o '"pk":[0-9]*' | head -1 | grep -o '[0-9]*' || true)
       [[ -z "$user_pk" ]] && { rename_retries=$((rename_retries+1)); sleep 3; }
     done
 
@@ -442,6 +454,22 @@ start_stack() {
     else
       warn "Could not find akadmin user after 45s — log in to Authentik as 'akadmin' and rename manually"
     fi
+  fi
+
+  info "      Ensuring Authentik admin is in the Homarr admin group..."
+  homarr_group_configured=false
+  for _ in {1..20}; do
+    if docker compose exec -T -e ADMIN_USER="${ADMIN_USER}" authentik-server \
+      ak shell -c "import os; from authentik.core.models import Group, User; group, _ = Group.objects.get_or_create(name='homarr-admins'); user = User.objects.filter(username=os.environ['ADMIN_USER']).first() or User.objects.filter(username='akadmin').first(); user.groups.add(group) if user else (_ for _ in ()).throw(Exception('admin user not found'))" > /dev/null 2>&1; then
+      homarr_group_configured=true
+      break
+    fi
+    sleep 3
+  done
+  if [[ "${homarr_group_configured}" == "true" ]]; then
+    success "      Homarr admin group membership configured"
+  else
+    warn "Could not add Authentik admin to homarr-admins — create that group membership manually before Homarr OIDC login"
   fi
 
   info "[4/5] Starting remaining services..."
@@ -471,6 +499,10 @@ configure_services() {
 
   run_config_script "Nextcloud OIDC"          scripts/configure-nextcloud-oidc.sh
   run_config_script "Audiobookshelf OIDC"     scripts/configure-audiobookshelf-oidc.sh
+  run_config_script "Authentik Homarr OIDC"   scripts/configure-authentik-homarr-oidc.sh
+  run_config_script "Homarr OIDC first run"   scripts/configure-homarr.sh
+  run_config_script "Jellyfin first run"      scripts/configure-jellyfin.sh
+  run_config_script "Jellyseerr first run"    scripts/configure-jellyseerr.sh
   run_config_script "Uptime Kuma admin"       scripts/configure-uptime-kuma.sh
   run_config_script "qBittorrent credentials" scripts/configure-qbittorrent.sh
 
@@ -530,6 +562,9 @@ DONE
   echo -e "    • Authentik admin username"
   echo -e "    • Nextcloud OIDC"
   echo -e "    • Audiobookshelf OIDC"
+  echo -e "    • Homarr OIDC first run"
+  echo -e "    • Jellyfin first run + default libraries"
+  echo -e "    • Jellyseerr first run + Jellyfin connection"
   echo -e "    • Uptime Kuma admin account"
   echo -e "    • qBittorrent credentials (username: ${ADMIN_USER})"
   echo -e "    • Headscale user + pre-auth key (printed above)"
@@ -542,10 +577,8 @@ DONE
     echo ""
   fi
   echo -e "  ${BOLD}Still requires manual setup:${NC}"
-  echo -e "  [ ] Jellyfin   https://jellyfin.${DOMAIN}"
-  echo -e "      Complete setup wizard; add media libraries"
-  echo -e "  [ ] Jellyseerr https://requests.${DOMAIN}  (do after Jellyfin)"
-  echo -e "      Connect to Jellyfin in the setup wizard"
+  echo -e "  [ ] Homarr     https://home.${DOMAIN}"
+  echo -e "      Create your first dashboard/layout"
   echo ""
   echo -e "  ${BOLD}Connect Tailscale/Headscale devices:${NC}"
   echo -e "      ${CYAN}tailscale login --login-server https://headscale.${DOMAIN} --authkey <key above>${NC}"
@@ -815,5 +848,10 @@ main() {
   generate_start_script
   print_summary
 }
+
+if [[ "${1:-}" == "--check" ]]; then
+  shift
+  exec "${SCRIPT_DIR}/scripts/doctor.sh" "$@"
+fi
 
 main "$@"

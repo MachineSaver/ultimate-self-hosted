@@ -79,7 +79,7 @@ bcrypt.hash(UK_PASS, 10, (hashErr, hash) => {
       );
     } else {
       db.run(
-        'INSERT INTO user (username, password, active, timezone, language) VALUES (?, ?, 1, "UTC", "en")',
+        'INSERT INTO user (username, password, active, timezone) VALUES (?, ?, 1, "UTC")',
         [UK_USER, hash],
         function (insErr) {
           db.close();

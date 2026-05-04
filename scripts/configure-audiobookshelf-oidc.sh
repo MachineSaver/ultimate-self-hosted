@@ -67,6 +67,19 @@ async function main() {
     })
   });
   if (!patch.ok) throw new Error(`Auth settings update failed (${patch.status}): ${await patch.text()}`);
+
+  const verify = await fetch(`${BASE}/api/auth-settings`, {
+    headers: { 'Authorization': `Bearer ${token}` }
+  });
+  if (!verify.ok) throw new Error(`Auth settings verification failed (${verify.status}): ${await verify.text()}`);
+
+  const settings = await verify.json();
+  const expectedIssuer = `https://auth.${ABS_DOMAIN}/application/o/audiobookshelf/`;
+  const methods = settings.authActiveAuthMethods || [];
+  if (!methods.includes('openid')) throw new Error('OpenID auth method is not enabled after update');
+  if (settings.authOpenIDIssuerURL !== expectedIssuer) throw new Error('OpenID issuer verification failed after update');
+  if (settings.authOpenIDClientID !== ABS_CLIENT_ID) throw new Error('OpenID client ID verification failed after update');
+
   process.stdout.write('Done! Audiobookshelf OIDC configured.\n');
 }
 
