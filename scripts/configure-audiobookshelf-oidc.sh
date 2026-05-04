@@ -61,7 +61,8 @@ async function main() {
     authOpenIDTokenURL: `${providerBase}/token/`,
     authOpenIDUserInfoURL: `${providerBase}/userinfo/`,
     authOpenIDJwksURL: `${providerBase}/audiobookshelf/jwks/`,
-    authOpenIDLogoutURL: `${providerBase}/audiobookshelf/end-session/`
+    authOpenIDLogoutURL: `${providerBase}/audiobookshelf/end-session/`,
+    authOpenIDSubfolderForRedirectURLs: ''
   };
 
   const patch = await fetch(`${BASE}/api/auth-settings`, {
