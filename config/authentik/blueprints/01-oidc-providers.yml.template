@@ -78,6 +78,10 @@ entries:
       client_secret: "{{AUDIOBOOKSHELF_OIDC_CLIENT_SECRET}}"
       client_type: confidential
       redirect_uris:
+        - url: "https://audiobooks.{{DOMAIN}}/audiobookshelf/auth/openid/callback"
+          matching_mode: strict
+        - url: "https://audiobooks.{{DOMAIN}}/audiobookshelf/auth/openid/mobile-redirect"
+          matching_mode: strict
         - url: "https://audiobooks.{{DOMAIN}}/auth/openid/callback"
           matching_mode: strict
         - url: "https://audiobooks.{{DOMAIN}}/auth/openid/mobile-redirect"

@@ -53,12 +53,23 @@ async function main() {
   const token = login?.user?.token;
   if (!token) throw new Error('Login failed — check ADMIN_USER and ADMIN_PASSWORD in .env');
 
+  const issuer = `https://auth.${ABS_DOMAIN}/`;
+  const providerBase = `https://auth.${ABS_DOMAIN}/application/o`;
+  const expected = {
+    authOpenIDIssuerURL: issuer,
+    authOpenIDAuthorizationURL: `${providerBase}/authorize/`,
+    authOpenIDTokenURL: `${providerBase}/token/`,
+    authOpenIDUserInfoURL: `${providerBase}/userinfo/`,
+    authOpenIDJwksURL: `${providerBase}/audiobookshelf/jwks/`,
+    authOpenIDLogoutURL: `${providerBase}/audiobookshelf/end-session/`
+  };
+
   const patch = await fetch(`${BASE}/api/auth-settings`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
     body: JSON.stringify({
       authActiveAuthMethods: ['local', 'openid'],
-      authOpenIDIssuerURL: `https://auth.${ABS_DOMAIN}/application/o/audiobookshelf/`,
+      ...expected,
       authOpenIDClientID: ABS_CLIENT_ID,
       authOpenIDClientSecret: ABS_CLIENT_SECRET,
       authOpenIDAutoLaunch: false,
@@ -74,10 +85,11 @@ async function main() {
   if (!verify.ok) throw new Error(`Auth settings verification failed (${verify.status}): ${await verify.text()}`);
 
   const settings = await verify.json();
-  const expectedIssuer = `https://auth.${ABS_DOMAIN}/application/o/audiobookshelf/`;
   const methods = settings.authActiveAuthMethods || [];
   if (!methods.includes('openid')) throw new Error('OpenID auth method is not enabled after update');
-  if (settings.authOpenIDIssuerURL !== expectedIssuer) throw new Error('OpenID issuer verification failed after update');
+  for (const [key, value] of Object.entries(expected)) {
+    if (settings[key] !== value) throw new Error(`${key} verification failed after update`);
+  }
   if (settings.authOpenIDClientID !== ABS_CLIENT_ID) throw new Error('OpenID client ID verification failed after update');
 
   process.stdout.write('Done! Audiobookshelf OIDC configured.\n');
