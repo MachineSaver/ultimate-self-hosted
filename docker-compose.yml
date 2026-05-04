@@ -173,7 +173,7 @@ services:
   # HOMARR — Home Dashboard (native OIDC)
   # ──────────────────────────────────────────────────────────────
   homarr:
-    image: ghcr.io/homarr-labs/homarr:1.59.3
+    image: ghcr.io/homarr-labs/homarr:v1.59.3
     container_name: homarr
     restart: unless-stopped
     environment:
@@ -300,7 +300,7 @@ services:
       retries: 10
 
   booklore:
-    image: ghcr.io/the-booklore/booklore:2.3.0
+    image: ghcr.io/the-booklore/booklore:v2.2.2
     container_name: booklore
     restart: unless-stopped
     depends_on:

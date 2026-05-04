@@ -48,7 +48,7 @@ Several services use `:latest` tags.
 
 **Impact:** Fresh installs can change behavior without a repository change, and upstream breaking changes can appear during normal updates.
 
-**Fix:** Pinned all 19 images to explicit versions as of 2026-04-30: homarr 1.59.3, jellyfin 10.11.8, jellyseerr 3.2.0, audiobookshelf 2.34.0, booklore 2.3.0, navidrome 0.61.2, sonarr 4.0.17.2952-ls309, radarr 6.1.1.10360-ls300, lidarr 3.1.0.4875-ls26, prowlarr 2.3.5.5327-ls144, qbittorrent 5.1.4-r3-ls452, headscale 0.28.0, headscale-ui 2026.03.17, uptime-kuma 2.2.1, prometheus v3.11.3, node-exporter v1.11.1, cadvisor v0.56.2, grafana 13.0.1, vaultwarden 1.35.8.
+**Fix:** Pinned all images to explicit versions. Homarr uses `v1.59.3` and Booklore uses `v2.2.2` because those are the valid GHCR tags verified during live update testing.
 
 ## ISSUE-005 - Some Traefik middlewares are defined but not applied
 
