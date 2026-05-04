@@ -81,6 +81,12 @@ if [[ -f "${BACKUP_DIR}/db/booklore-mariadb.sql" ]]; then
     sleep 2
   done
   docker compose exec -T booklore-db sh -lc 'mariadb -uroot -p"$MYSQL_ROOT_PASSWORD"' < "${BACKUP_DIR}/db/booklore-mariadb.sql"
+elif [[ -f "${BACKUP_DIR}/db/booklore.sql" ]]; then
+  echo "[restore] Restoring Booklore application database dump..."
+  until docker compose exec -T booklore-db mariadb-admin ping -h localhost >/dev/null 2>&1; do
+    sleep 2
+  done
+  docker compose exec -T booklore-db sh -lc 'mariadb -u"$MYSQL_USER" -p"$MYSQL_PASSWORD" "$MYSQL_DATABASE"' < "${BACKUP_DIR}/db/booklore.sql"
 fi
 
 echo "[restore] Restore complete. Start the full stack with ./scripts/start.sh."

@@ -34,7 +34,7 @@ done
 
 latest_backup() {
   [[ -d "${BACKUP_ROOT}" ]] || return 0
-  find "${BACKUP_ROOT}" -mindepth 1 -maxdepth 1 -type d -printf '%T@ %p\n' 2>/dev/null \
+  find "${BACKUP_ROOT}" -mindepth 1 -maxdepth 1 -type d -name '20*' -exec test -f '{}/project-config.tgz' ';' -printf '%T@ %p\n' 2>/dev/null \
     | sort -nr \
     | awk 'NR == 1 {print $2}'
 }

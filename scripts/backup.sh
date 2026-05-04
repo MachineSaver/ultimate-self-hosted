@@ -60,7 +60,12 @@ fi
 
 if has_docker && docker compose ps booklore-db 2>/dev/null | grep -q 'booklore-db'; then
   log "Dumping Booklore MariaDB database..."
-  if ! docker compose exec -T booklore-db sh -lc 'mariadb-dump -uroot -p"$MYSQL_ROOT_PASSWORD" --all-databases' > "${BACKUP_DIR}/db/booklore-mariadb.sql"; then
+  if docker compose exec -T booklore-db sh -lc 'mariadb-dump -uroot -p"$MYSQL_ROOT_PASSWORD" --all-databases' > "${BACKUP_DIR}/db/booklore-mariadb.sql"; then
+    :
+  elif docker compose exec -T booklore-db sh -lc 'mariadb-dump -u"$MYSQL_USER" -p"$MYSQL_PASSWORD" "$MYSQL_DATABASE"' > "${BACKUP_DIR}/db/booklore.sql"; then
+    warn "Booklore root dump failed; captured application database dump instead"
+    rm -f "${BACKUP_DIR}/db/booklore-mariadb.sql"
+  else
     warn "Booklore MariaDB dump failed"
     rm -f "${BACKUP_DIR}/db/booklore-mariadb.sql"
   fi
