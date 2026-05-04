@@ -11,6 +11,7 @@ config/headscale/config.yaml
 
 # Persistent data
 data/
+backups/
 
 # OS
 .DS_Store
