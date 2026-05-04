@@ -90,51 +90,64 @@ warn_cmd() {
 
 load_env() {
   if [[ -f .env ]]; then
+    if [[ ! -r .env ]]; then
+      SAMPLE_ENV=true
+      fail ".env exists but is not readable by the current user; using sample values for static checks"
+      set_sample_env
+      return
+    fi
+
     # shellcheck source=/dev/null
     set -a; source .env; set +a
     pass ".env exists and can be sourced"
   else
     SAMPLE_ENV=true
     warn ".env not found; using sample values for static checks"
-    DOMAIN="${DOMAIN:-example.com}"
-    ADMIN_USER="${ADMIN_USER:-admin}"
-    ADMIN_PASSWORD="${ADMIN_PASSWORD:-change-me}"
-    ADMIN_EMAIL="${ADMIN_EMAIL:-admin@example.com}"
-    TZ="${TZ:-UTC}"
-    PUID="${PUID:-1000}"
-    PGID="${PGID:-1000}"
-    MEDIA_DIR="${MEDIA_DIR:-./data/media}"
-    DOWNLOADS_DIR="${DOWNLOADS_DIR:-./data/downloads}"
-    MEDIA_DIR_LOCAL="${MEDIA_DIR_LOCAL:-./data/media}"
-    DOWNLOADS_DIR_LOCAL="${DOWNLOADS_DIR_LOCAL:-./data/downloads}"
-    USE_STORAGE_BOX="${USE_STORAGE_BOX:-false}"
-    STORAGEBOX_HOST="${STORAGEBOX_HOST:-}"
-    STORAGEBOX_USER="${STORAGEBOX_USER:-}"
-    STORAGEBOX_SHARE="${STORAGEBOX_SHARE:-backup}"
-    STORAGEBOX_MOUNT="${STORAGEBOX_MOUNT:-/mnt/storagebox}"
-    POSTGRES_PASSWORD="${POSTGRES_PASSWORD:-doctor-postgres}"
-    REDIS_PASSWORD="${REDIS_PASSWORD:-doctor-redis}"
-    NEXTCLOUD_DB_PASSWORD="${NEXTCLOUD_DB_PASSWORD:-doctor-nextcloud}"
-    BOOKLORE_DB_PASSWORD="${BOOKLORE_DB_PASSWORD:-doctor-booklore}"
-    BOOKLORE_DB_ROOT_PASSWORD="${BOOKLORE_DB_ROOT_PASSWORD:-doctor-booklore-root}"
-    AUTHENTIK_SECRET_KEY="${AUTHENTIK_SECRET_KEY:-doctor-authentik-secret}"
-    AUTHENTIK_BOOTSTRAP_TOKEN="${AUTHENTIK_BOOTSTRAP_TOKEN:-doctor-authentik-token}"
-    HOMARR_OIDC_CLIENT_ID="${HOMARR_OIDC_CLIENT_ID:-doctor-homarr}"
-    HOMARR_OIDC_CLIENT_SECRET="${HOMARR_OIDC_CLIENT_SECRET:-doctor-homarr-secret}"
-    HOMARR_SECRET_KEY="${HOMARR_SECRET_KEY:-doctor-homarr-key}"
-    AUDIOBOOKSHELF_OIDC_CLIENT_ID="${AUDIOBOOKSHELF_OIDC_CLIENT_ID:-doctor-abs}"
-    AUDIOBOOKSHELF_OIDC_CLIENT_SECRET="${AUDIOBOOKSHELF_OIDC_CLIENT_SECRET:-doctor-abs-secret}"
-    NEXTCLOUD_OIDC_CLIENT_ID="${NEXTCLOUD_OIDC_CLIENT_ID:-doctor-nextcloud}"
-    NEXTCLOUD_OIDC_CLIENT_SECRET="${NEXTCLOUD_OIDC_CLIENT_SECRET:-doctor-nextcloud-secret}"
-    GRAFANA_OIDC_CLIENT_ID="${GRAFANA_OIDC_CLIENT_ID:-doctor-grafana}"
-    GRAFANA_OIDC_CLIENT_SECRET="${GRAFANA_OIDC_CLIENT_SECRET:-doctor-grafana-secret}"
-    VAULTWARDEN_OIDC_CLIENT_ID="${VAULTWARDEN_OIDC_CLIENT_ID:-doctor-vaultwarden}"
-    VAULTWARDEN_OIDC_CLIENT_SECRET="${VAULTWARDEN_OIDC_CLIENT_SECRET:-doctor-vaultwarden-secret}"
+    set_sample_env
   fi
 
   USE_STORAGE_BOX="${USE_STORAGE_BOX:-false}"
   STORAGEBOX_SHARE="${STORAGEBOX_SHARE:-backup}"
   STORAGEBOX_MOUNT="${STORAGEBOX_MOUNT:-/mnt/storagebox}"
+}
+
+set_sample_env() {
+  DOMAIN="${DOMAIN:-example.com}"
+  ADMIN_USER="${ADMIN_USER:-admin}"
+  ADMIN_PASSWORD="${ADMIN_PASSWORD:-change-me}"
+  ADMIN_EMAIL="${ADMIN_EMAIL:-admin@example.com}"
+  TZ="${TZ:-UTC}"
+  PUID="${PUID:-1000}"
+  PGID="${PGID:-1000}"
+  MEDIA_DIR="${MEDIA_DIR:-./data/media}"
+  DOWNLOADS_DIR="${DOWNLOADS_DIR:-./data/downloads}"
+  MEDIA_DIR_LOCAL="${MEDIA_DIR_LOCAL:-./data/media}"
+  DOWNLOADS_DIR_LOCAL="${DOWNLOADS_DIR_LOCAL:-./data/downloads}"
+  USE_STORAGE_BOX="${USE_STORAGE_BOX:-false}"
+  STORAGEBOX_HOST="${STORAGEBOX_HOST:-}"
+  STORAGEBOX_USER="${STORAGEBOX_USER:-}"
+  STORAGEBOX_SHARE="${STORAGEBOX_SHARE:-backup}"
+  STORAGEBOX_MOUNT="${STORAGEBOX_MOUNT:-/mnt/storagebox}"
+  POSTGRES_PASSWORD="${POSTGRES_PASSWORD:-doctor-postgres}"
+  REDIS_PASSWORD="${REDIS_PASSWORD:-doctor-redis}"
+  NEXTCLOUD_DB_PASSWORD="${NEXTCLOUD_DB_PASSWORD:-doctor-nextcloud}"
+  BOOKLORE_DB_PASSWORD="${BOOKLORE_DB_PASSWORD:-doctor-booklore}"
+  BOOKLORE_DB_ROOT_PASSWORD="${BOOKLORE_DB_ROOT_PASSWORD:-doctor-booklore-root}"
+  AUTHENTIK_SECRET_KEY="${AUTHENTIK_SECRET_KEY:-doctor-authentik-secret}"
+  AUTHENTIK_BOOTSTRAP_TOKEN="${AUTHENTIK_BOOTSTRAP_TOKEN:-doctor-authentik-token}"
+  HOMARR_OIDC_CLIENT_ID="${HOMARR_OIDC_CLIENT_ID:-doctor-homarr}"
+  HOMARR_OIDC_CLIENT_SECRET="${HOMARR_OIDC_CLIENT_SECRET:-doctor-homarr-secret}"
+  HOMARR_SECRET_KEY="${HOMARR_SECRET_KEY:-doctor-homarr-key}"
+  AUDIOBOOKSHELF_OIDC_CLIENT_ID="${AUDIOBOOKSHELF_OIDC_CLIENT_ID:-doctor-abs}"
+  AUDIOBOOKSHELF_OIDC_CLIENT_SECRET="${AUDIOBOOKSHELF_OIDC_CLIENT_SECRET:-doctor-abs-secret}"
+  JELLYFIN_OIDC_CLIENT_ID="${JELLYFIN_OIDC_CLIENT_ID:-doctor-jellyfin}"
+  JELLYFIN_OIDC_CLIENT_SECRET="${JELLYFIN_OIDC_CLIENT_SECRET:-doctor-jellyfin-secret}"
+  NEXTCLOUD_OIDC_CLIENT_ID="${NEXTCLOUD_OIDC_CLIENT_ID:-doctor-nextcloud}"
+  NEXTCLOUD_OIDC_CLIENT_SECRET="${NEXTCLOUD_OIDC_CLIENT_SECRET:-doctor-nextcloud-secret}"
+  GRAFANA_OIDC_CLIENT_ID="${GRAFANA_OIDC_CLIENT_ID:-doctor-grafana}"
+  GRAFANA_OIDC_CLIENT_SECRET="${GRAFANA_OIDC_CLIENT_SECRET:-doctor-grafana-secret}"
+  VAULTWARDEN_OIDC_CLIENT_ID="${VAULTWARDEN_OIDC_CLIENT_ID:-doctor-vaultwarden}"
+  VAULTWARDEN_OIDC_CLIENT_SECRET="${VAULTWARDEN_OIDC_CLIENT_SECRET:-doctor-vaultwarden-secret}"
 }
 
 env_or_sample() {
@@ -167,6 +180,8 @@ HOMARR_OIDC_CLIENT_SECRET=${HOMARR_OIDC_CLIENT_SECRET:-doctor-homarr-secret}
 HOMARR_SECRET_KEY=${HOMARR_SECRET_KEY:-doctor-homarr-key}
 AUDIOBOOKSHELF_OIDC_CLIENT_ID=${AUDIOBOOKSHELF_OIDC_CLIENT_ID:-doctor-abs}
 AUDIOBOOKSHELF_OIDC_CLIENT_SECRET=${AUDIOBOOKSHELF_OIDC_CLIENT_SECRET:-doctor-abs-secret}
+JELLYFIN_OIDC_CLIENT_ID=${JELLYFIN_OIDC_CLIENT_ID:-doctor-jellyfin}
+JELLYFIN_OIDC_CLIENT_SECRET=${JELLYFIN_OIDC_CLIENT_SECRET:-doctor-jellyfin-secret}
 NEXTCLOUD_OIDC_CLIENT_ID=${NEXTCLOUD_OIDC_CLIENT_ID:-doctor-nextcloud}
 NEXTCLOUD_OIDC_CLIENT_SECRET=${NEXTCLOUD_OIDC_CLIENT_SECRET:-doctor-nextcloud-secret}
 GRAFANA_OIDC_CLIENT_ID=${GRAFANA_OIDC_CLIENT_ID:-doctor-grafana}
@@ -184,6 +199,7 @@ check_required_env() {
     AUTHENTIK_SECRET_KEY AUTHENTIK_BOOTSTRAP_TOKEN
     HOMARR_OIDC_CLIENT_ID HOMARR_OIDC_CLIENT_SECRET HOMARR_SECRET_KEY
     AUDIOBOOKSHELF_OIDC_CLIENT_ID AUDIOBOOKSHELF_OIDC_CLIENT_SECRET
+    JELLYFIN_OIDC_CLIENT_ID JELLYFIN_OIDC_CLIENT_SECRET
     NEXTCLOUD_OIDC_CLIENT_ID NEXTCLOUD_OIDC_CLIENT_SECRET NEXTCLOUD_DB_PASSWORD
     GRAFANA_OIDC_CLIENT_ID GRAFANA_OIDC_CLIENT_SECRET
     VAULTWARDEN_OIDC_CLIENT_ID VAULTWARDEN_OIDC_CLIENT_SECRET
@@ -213,7 +229,7 @@ check_bash_syntax() {
     else
       failed=1
     fi
-  done < <(find . -path './.git' -prune -o -name '*.sh' -type f -print)
+  done < <(find install.sh scripts -name '*.sh' -type f -print)
 
   if [[ "$failed" -eq 0 ]]; then
     pass "Shell scripts pass bash syntax checks"
@@ -242,6 +258,31 @@ check_templates_exist() {
     pass "Template files found: $count"
   else
     fail "No config templates found"
+  fi
+}
+
+check_service_registry() {
+  if [[ ! -f services.yml ]]; then
+    fail "services.yml is missing"
+    return
+  fi
+
+  local count missing_scripts
+  count=$(grep -c '^[[:space:]]*- name:' services.yml || true)
+  missing_scripts=$(
+    awk '/post_install_script:/ {print $2}' services.yml \
+      | while read -r script; do
+          [[ -f "$script" ]] || echo "$script"
+        done
+  )
+
+  if [[ "$count" -lt 15 ]]; then
+    fail "services.yml appears incomplete: ${count} services listed"
+  elif [[ -n "$missing_scripts" ]]; then
+    fail "services.yml references missing post-install scripts:"
+    echo "$missing_scripts"
+  else
+    pass "Service registry is present and references existing scripts"
   fi
 }
 
@@ -389,6 +430,7 @@ check_bash_syntax
 check_executable_scripts
 check_template_placeholders
 check_no_latest_images
+check_service_registry
 
 section "Environment And Compose"
 load_env

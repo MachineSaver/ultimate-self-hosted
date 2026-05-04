@@ -53,6 +53,8 @@ Create a structured service registry, for example `services.yml`, that describes
 
 The README tables, summary output, directory creation, OIDC client generation, and some Traefik labels could then be generated from the same source of truth.
 
+Initial implementation lives in `services.yml`. It records service category, subdomain, auth method, internal port, data directories, OIDC client environment variables, and post-install script ownership. `scripts/doctor.sh` validates that the registry exists and references real post-install scripts.
+
 ## Validation And Doctor Command
 
 Add and maintain a `scripts/doctor.sh` / `./install.sh --check` mode that validates:
@@ -86,6 +88,8 @@ Make every post-install configuration script safe to re-run after partial failur
 
 This reduces manual recovery work when first boot races, slow migrations, or service-specific setup steps fail.
 
+Implemented for the current post-install scripts. Scripts wait for service readiness, update existing state where supported, and verify final state. The installer now fails the install if post-install configuration cannot prove completion.
+
 ## OIDC-First Authentication
 
 Prefer Authentik/OIDC over local app accounts wherever the upstream service supports it:
@@ -103,6 +107,8 @@ The goal is fewer independent passwords, fewer repeated logins, and a consistent
 
 Implementation should prefer service APIs first, stable config edits second, and Playwright/browser automation only for apps that do not expose a reliable setup API.
 
+Current automation configures native OIDC for Homarr, Nextcloud, Audiobookshelf, Grafana, and Vaultwarden, plus an Authentik OIDC client for Jellyfin's optional SSO plugin. The README documents remaining local break-glass accounts explicitly; Jellyfin plugin installation remains optional because it still requires a plugin install step inside Jellyfin.
+
 ## Version And Update Policy
 
 Document and automate a safer update process:
@@ -113,11 +119,15 @@ Document and automate a safer update process:
 - changelog notes for service version bumps
 - rollback guidance for failed upgrades
 
+Initial implementation is in `scripts/update.sh`, which requires a recent backup by default, can run `scripts/backup.sh` first, records replaced image state, pulls configured image tags, and redeploys through `scripts/start.sh`.
+
 ## Tracked Start Script
 
 Keep `scripts/start.sh` as a versioned script rather than generating it during install.
 
 This would make startup behavior reviewable, testable, and easier to maintain.
+
+Implemented as a tracked executable `scripts/start.sh`; the installer now only verifies that the script is available.
 
 ## Backup Restore And Update Scripts
 
@@ -128,6 +138,8 @@ Add versioned operational scripts for routine maintenance:
 - `scripts/update.sh`
 
 Updates should require or strongly prompt for a recent backup, record the image versions being replaced, and document rollback steps for database-backed services.
+
+Implemented as `scripts/backup.sh`, `scripts/restore.sh`, and `scripts/update.sh`.
 
 ## CI And Static Checks
 

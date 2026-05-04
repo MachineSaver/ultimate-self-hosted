@@ -4,8 +4,8 @@ Current bug and risk tracker for the stack.
 
 ## ISSUE-001 - Authentik timeout can skip starting the remaining stack
 
-**Status:** Fixed  
-**Severity:** High  
+**Status:** Fixed
+**Severity:** High
 **Area:** Installer orchestration
 
 `install.sh` waits for Authentik during `start_stack()`. If Authentik takes longer than the retry window, the function prints warnings and returns success before running the step that starts the remaining services.
@@ -16,8 +16,8 @@ Current bug and risk tracker for the stack.
 
 ## ISSUE-002 - Raw `.env` writing and template substitution are unsafe for special characters
 
-**Status:** Fixed  
-**Severity:** High  
+**Status:** Fixed
+**Severity:** High
 **Area:** Configuration generation
 
 Installer prompts are written directly into `.env` and substituted into templates with `sed`.
@@ -28,8 +28,8 @@ Installer prompts are written directly into `.env` and substituted into template
 
 ## ISSUE-003 - `python3` is optional but required by setup paths
 
-**Status:** Fixed  
-**Severity:** Medium  
+**Status:** Fixed
+**Severity:** Medium
 **Area:** Requirements
 
 `install.sh` treats `python3` as optional, but the Authentik rename flow and Headscale setup use Python JSON parsing.
@@ -40,8 +40,8 @@ Installer prompts are written directly into `.env` and substituted into template
 
 ## ISSUE-004 - Unpinned `latest` images reduce reproducibility
 
-**Status:** Fixed  
-**Severity:** Medium  
+**Status:** Fixed
+**Severity:** Medium
 **Area:** Docker images
 
 Several services use `:latest` tags.
@@ -64,8 +64,8 @@ Several services use `:latest` tags.
 
 ## ISSUE-006 - Missing preflight/doctor checks make install failures reactive
 
-**Status:** Fixed  
-**Severity:** High  
+**Status:** Fixed
+**Severity:** High
 **Area:** Validation and operations
 
 The installer checks for Docker, Compose, curl, openssl, and Docker daemon availability, but it does not provide a standalone diagnostic path for validating repository state, generated config, DNS, template output, or mount health.
@@ -76,52 +76,48 @@ The installer checks for Docker, Compose, curl, openssl, and Docker daemon avail
 
 ## ISSUE-007 - Service configuration scripts are not consistently idempotent
 
-**Status:** Partially fixed  
-**Severity:** High  
+**Status:** Fixed
+**Severity:** High
 **Area:** Post-install automation
 
 Post-install scripts can configure services, but some scripts rely on first-run state or append/create behavior instead of detecting and updating current state. qBittorrent depends on a temporary password parsed from logs, and Nextcloud OIDC configuration does not first inspect existing providers.
 
 **Impact:** Re-running failed or partially completed installs can skip needed repair work, duplicate configuration, or report success without proving the desired final state.
 
-**Suggested fix:** Each configure script should follow the same pattern: wait for service readiness, inspect current state, create or update as needed, and verify the final state. Where service APIs require secrets, pass them via environment variables rather than interpolating them into shell strings.
-
-**Progress:** Nextcloud now creates or updates the named `authentik` OIDC provider and verifies it exists after configuration. Audiobookshelf verifies OpenID auth settings after updating them. Headscale waits for service readiness and verifies the admin user exists before creating a pre-auth key. qBittorrent now first tests the desired credentials, falls back to the temporary password only when needed, and fails loudly if neither path can prove the desired final state.
+**Fix:** Post-install scripts now follow a wait, inspect/update, and verify pattern. Nextcloud creates or updates the named `authentik` OIDC provider and verifies it exists. Audiobookshelf verifies OpenID auth settings after updating them. Headscale waits for readiness and verifies the admin user exists before creating a pre-auth key. qBittorrent first tests desired credentials, falls back to the temporary password only when needed, and fails loudly if neither path can prove the desired final state. Jellyseerr now verifies and refreshes the Jellyfin connection even when it was already initialized. Uptime Kuma and Homarr verify their database changes after writing. The installer now stops if post-install configuration fails instead of printing a clean setup-complete summary.
 
 ## ISSUE-008 - Shell and JSON quoting in service scripts can break with valid secrets
 
-**Status:** Partially fixed  
-**Severity:** High  
+**Status:** Fixed
+**Severity:** High
 **Area:** Secret handling
 
 Some service scripts interpolate user-provided credentials directly into shell command strings or JSON payloads. For example, qBittorrent credential setup builds a remote `bash -c` command containing the admin password.
 
 **Impact:** Passwords containing quotes, backslashes, dollar signs, or other shell/JSON-sensitive characters can break configuration or send malformed API requests.
 
-**Suggested fix:** Pass secrets through environment variables and construct JSON with a proper encoder inside the target runtime, or use a tightly scoped helper that escapes JSON values correctly.
-
-**Progress:** qBittorrent credential setup now passes credentials through environment variables, URL-encodes form fields, and JSON-escapes preferences inside the container before calling the API. Other scripts should still be reviewed under this issue.
+**Fix:** Service configuration scripts pass secrets through environment variables or quoted command arguments, construct JSON inside the target runtime where practical, and verify final state after updates. qBittorrent credential setup passes credentials through environment variables, URL-encodes form fields, and JSON-escapes preferences inside the container before calling the API.
 
 ## ISSUE-009 - Startup behavior is generated instead of versioned
 
-**Status:** Open  
-**Severity:** Medium  
+**Status:** Fixed
+**Severity:** Medium
 **Area:** Operations
 
-`install.sh` generates `scripts/start.sh` during installation.
+`install.sh` used to generate `scripts/start.sh` during installation.
 
 **Impact:** Startup behavior is harder to review, lint, test, and evolve because the real operational script is embedded inside the installer.
 
-**Suggested fix:** Commit `scripts/start.sh` as a tracked script and have the installer only write environment-specific state.
+**Fix:** Added `scripts/start.sh` as a tracked executable script. The installer now verifies that it exists instead of writing operational behavior during install.
 
 ## ISSUE-010 - No backup, restore, or deliberate update workflow
 
-**Status:** Open  
-**Severity:** Medium  
+**Status:** Fixed
+**Severity:** Medium
 **Area:** Operations
 
 The stack documents a direct `docker compose pull && docker compose up -d` update path, but it includes databases and application state that should be backed up before upgrades.
 
 **Impact:** Routine updates can become risky, and failed upgrades have no documented rollback path.
 
-**Suggested fix:** Add `scripts/backup.sh`, `scripts/restore.sh`, and `scripts/update.sh` with pre-update backup checks, service-aware data coverage, and rollback guidance.
+**Fix:** Added `scripts/backup.sh`, `scripts/restore.sh`, and `scripts/update.sh`. Backups capture project config, `services.yml`, app data, Compose image state, and database dumps when PostgreSQL and Booklore MariaDB are reachable. Updates require a recent backup by default, can create one first, and record replaced image state for rollback guidance. Restore requires explicit `--yes` before overwriting local state.

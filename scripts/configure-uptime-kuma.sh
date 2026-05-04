@@ -95,4 +95,26 @@ bcrypt.hash(UK_PASS, 10, (hashErr, hash) => {
 });
 JSEOF
 
+echo "Verifying Uptime Kuma admin account..."
+docker compose exec -T \
+  -e UK_USER="${ADMIN_USER}" \
+  uptime-kuma node - << 'JSEOF'
+const sqlite3 = require('@louislam/sqlite3');
+const { UK_USER } = process.env;
+const db = new sqlite3.Database('/app/data/kuma.db');
+
+db.get('SELECT username, active FROM user WHERE id = 1', [], (err, row) => {
+  db.close();
+  if (err) {
+    process.stderr.write('ERROR: DB verification failed — ' + err.message + '\n');
+    process.exit(1);
+  }
+  if (!row || row.username !== UK_USER || row.active !== 1) {
+    process.stderr.write('ERROR: Admin account verification failed.\n');
+    process.exit(1);
+  }
+  process.stdout.write('Admin account verified (' + UK_USER + ').\n');
+});
+JSEOF
+
 echo "Done! Uptime Kuma admin account configured (username: ${ADMIN_USER})."

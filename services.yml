@@ -1,0 +1,193 @@
+services:
+  - name: homarr
+    category: dashboard
+    subdomain: home
+    auth_method: native_oidc
+    internal_port: 7575
+    data_dirs:
+      - ./data/homarr/appdata
+    oidc_client_env:
+      id: HOMARR_OIDC_CLIENT_ID
+      secret: HOMARR_OIDC_CLIENT_SECRET
+    post_install_script: scripts/configure-homarr.sh
+
+  - name: authentik
+    category: identity
+    subdomain: auth
+    auth_method: identity_provider
+    internal_port: 9000
+    data_dirs:
+      - ./data/authentik/media
+      - ./data/postgres
+      - ./data/redis
+    post_install_script: scripts/configure-authentik-homarr-oidc.sh
+
+  - name: jellyfin
+    category: media
+    subdomain: jellyfin
+    auth_method: forward_auth_optional_oidc
+    internal_port: 8096
+    data_dirs:
+      - ./data/jellyfin/config
+      - ./data/jellyfin/cache
+    oidc_client_env:
+      id: JELLYFIN_OIDC_CLIENT_ID
+      secret: JELLYFIN_OIDC_CLIENT_SECRET
+    post_install_script: scripts/configure-jellyfin.sh
+
+  - name: jellyseerr
+    category: media
+    subdomain: requests
+    auth_method: forward_auth
+    internal_port: 5055
+    data_dirs:
+      - ./data/jellyseerr
+    post_install_script: scripts/configure-jellyseerr.sh
+
+  - name: audiobookshelf
+    category: media
+    subdomain: audiobooks
+    auth_method: native_oidc
+    internal_port: 13378
+    data_dirs:
+      - ./data/audiobookshelf/config
+      - ./data/audiobookshelf/metadata
+    oidc_client_env:
+      id: AUDIOBOOKSHELF_OIDC_CLIENT_ID
+      secret: AUDIOBOOKSHELF_OIDC_CLIENT_SECRET
+    post_install_script: scripts/configure-audiobookshelf-oidc.sh
+
+  - name: booklore
+    category: media
+    subdomain: books
+    auth_method: forward_auth
+    internal_port: 6060
+    data_dirs:
+      - ./data/booklore
+      - ./data/booklore-db
+      - ./data/booklore-bookdrop
+
+  - name: navidrome
+    category: media
+    subdomain: music
+    auth_method: forward_auth
+    internal_port: 4533
+    data_dirs:
+      - ./data/navidrome
+
+  - name: sonarr
+    category: automation
+    subdomain: sonarr
+    auth_method: forward_auth
+    internal_port: 8989
+    data_dirs:
+      - ./data/sonarr
+
+  - name: radarr
+    category: automation
+    subdomain: radarr
+    auth_method: forward_auth
+    internal_port: 7878
+    data_dirs:
+      - ./data/radarr
+
+  - name: lidarr
+    category: automation
+    subdomain: lidarr
+    auth_method: forward_auth
+    internal_port: 8686
+    data_dirs:
+      - ./data/lidarr
+
+  - name: prowlarr
+    category: automation
+    subdomain: prowlarr
+    auth_method: forward_auth
+    internal_port: 9696
+    data_dirs:
+      - ./data/prowlarr
+
+  - name: qbittorrent
+    category: downloads
+    subdomain: qbit
+    auth_method: forward_auth
+    internal_port: 8080
+    data_dirs:
+      - ./data/qbittorrent
+    post_install_script: scripts/configure-qbittorrent.sh
+
+  - name: nextcloud
+    category: cloud
+    subdomain: cloud
+    auth_method: native_oidc
+    internal_port: 80
+    data_dirs:
+      - ./data/nextcloud
+    oidc_client_env:
+      id: NEXTCLOUD_OIDC_CLIENT_ID
+      secret: NEXTCLOUD_OIDC_CLIENT_SECRET
+    post_install_script: scripts/configure-nextcloud-oidc.sh
+
+  - name: headscale
+    category: vpn
+    subdomain: headscale
+    auth_method: forward_auth
+    internal_port: 8080
+    data_dirs:
+      - ./data/headscale
+    post_install_script: scripts/configure-headscale.sh
+
+  - name: wg-easy
+    category: vpn
+    subdomain: vpn
+    auth_method: forward_auth
+    internal_port: 51821
+    data_dirs:
+      - ./data/wireguard
+
+  - name: uptime-kuma
+    category: monitoring
+    subdomain: uptime
+    auth_method: forward_auth
+    internal_port: 3001
+    data_dirs:
+      - ./data/uptime-kuma
+    post_install_script: scripts/configure-uptime-kuma.sh
+
+  - name: grafana
+    category: monitoring
+    subdomain: grafana
+    auth_method: native_oidc
+    internal_port: 3000
+    data_dirs:
+      - ./data/grafana
+    oidc_client_env:
+      id: GRAFANA_OIDC_CLIENT_ID
+      secret: GRAFANA_OIDC_CLIENT_SECRET
+
+  - name: prometheus
+    category: monitoring
+    subdomain: null
+    auth_method: internal_only
+    internal_port: 9090
+    data_dirs:
+      - ./data/prometheus
+
+  - name: vaultwarden
+    category: security
+    subdomain: vault
+    auth_method: native_oidc
+    internal_port: 80
+    data_dirs:
+      - ./data/vaultwarden
+    oidc_client_env:
+      id: VAULTWARDEN_OIDC_CLIENT_ID
+      secret: VAULTWARDEN_OIDC_CLIENT_SECRET
+
+  - name: traefik
+    category: proxy
+    subdomain: traefik
+    auth_method: forward_auth
+    internal_port: 8080
+    data_dirs:
+      - ./data/traefik/letsencrypt

@@ -63,9 +63,9 @@ function getCookie(response) {
 
 async function main() {
   const { body: publicSettings } = await request('/api/v1/settings/public');
-  if (publicSettings.initialized) {
-    console.log('Jellyseerr already initialized.');
-    return;
+  const alreadyInitialized = Boolean(publicSettings.initialized);
+  if (alreadyInitialized) {
+    console.log('Jellyseerr already initialized; verifying Jellyfin connection.');
   }
 
   console.log('Signing in to Jellyseerr with Jellyfin admin...');
@@ -112,10 +112,12 @@ async function main() {
     console.log('No Jellyfin libraries were returned; continuing with setup initialized.');
   }
 
-  await request('/api/v1/settings/initialize', {
-    method: 'POST',
-    headers: { Cookie: cookie },
-  });
+  if (!alreadyInitialized) {
+    await request('/api/v1/settings/initialize', {
+      method: 'POST',
+      headers: { Cookie: cookie },
+    });
+  }
 
   const { body: finalSettings } = await request('/api/v1/settings/public');
   if (!finalSettings.initialized) {

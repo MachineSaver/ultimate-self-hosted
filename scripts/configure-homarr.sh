@@ -72,6 +72,17 @@ const transaction = db.transaction(() => {
 });
 
 transaction();
+
+const verified = db
+  .prepare(
+    'select 1 from "group" g join "groupPermission" gp on gp.group_id = g.id where lower(trim(g.name)) = lower(trim(?)) and gp.permission = ?'
+  )
+  .get(groupName, 'admin');
+if (!verified) {
+  db.close();
+  throw new Error(`Homarr admin group '${groupName}' was not verified after configuration`);
+}
+
 db.close();
 
 console.log(`Homarr admin group '${groupName}' is configured and onboarding is complete.`);

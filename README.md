@@ -14,11 +14,13 @@ The installer walks you through a short set of prompts — admin credentials, do
 
 ## Services
 
+Service metadata is tracked in `services.yml` so automation and documentation can share the same service names, subdomains, auth methods, ports, data directories, OIDC client variables, and post-install scripts.
+
 | Category | Service | URL | Auth Method | Notes |
 |---|---|---|---|---|
 | **Dashboard** | Homarr | `home.domain` | Native OIDC | |
 | **Identity** | Authentik | `auth.domain` | — (is the IdP) | |
-| **Media** | Jellyfin | `jellyfin.domain` | Forward Auth | |
+| **Media** | Jellyfin | `jellyfin.domain` | Forward Auth + optional OIDC plugin | Authentik OIDC client is generated |
 | **Media** | Jellyseerr | `requests.domain` | Forward Auth | |
 | **Media** | Audiobookshelf | `audiobooks.domain` | Native OIDC | |
 | **Media** | Booklore | `books.domain` | Forward Auth | |
@@ -337,7 +339,7 @@ The installer also handles these automatically so you don't have to:
 - **Authentik admin username** — renamed from `akadmin` to whatever you entered, via the Authentik API immediately after first boot
 - **ARR authentication** — Sonarr, Radarr, Lidarr, and Prowlarr are pre-configured with `External` auth so Authentik forward auth is the only gate; no second login screen
 
-After the initial run, `scripts/start.sh` is generated in the project directory. Use it for all subsequent starts — it checks the Storage Box mount health before bringing containers up.
+After the initial run, use the versioned `scripts/start.sh` script for all subsequent starts. It checks the Storage Box mount health before bringing containers up.
 
 ### Step 3 — First-boot checklist
 
@@ -348,7 +350,7 @@ The installer automatically configures most services at the end of the install r
 | What | Notes |
 |---|---|
 | Authentik admin username | Renamed from `akadmin` to your chosen username |
-| Authentik Homarr OIDC | Homarr provider/application created in Authentik; group claim enabled |
+| Authentik OIDC clients | Homarr, Jellyfin plugin, Nextcloud, Audiobookshelf, Grafana, and Vaultwarden providers/applications created in Authentik |
 | Nextcloud OIDC | `user_oidc` app installed and wired to Authentik |
 | Audiobookshelf OIDC | Root user created; OpenID Connect enabled |
 | Homarr first run | External admin group `homarr-admins` created in Homarr; onboarding completed |
@@ -358,7 +360,7 @@ The installer automatically configures most services at the end of the install r
 | qBittorrent credentials | Username + password set to your install credentials |
 | Headscale user + pre-auth key | User created; key printed at end of install |
 
-If any step fails (shown as a warning at install time), re-run the corresponding script:
+If any step fails, the installer stops before printing the setup summary. Fix the reported service and re-run the corresponding script:
 
 ```bash
 ./scripts/configure-nextcloud-oidc.sh
@@ -373,6 +375,17 @@ If any step fails (shown as a warning at install time), re-run the corresponding
 ```
 
 Jellyseerr uses `JELLYFIN_ADMIN_USER` / `JELLYFIN_ADMIN_PASSWORD` from `.env` to connect to Jellyfin. Fresh installs default these to the main admin credentials; override them only if Jellyfin was initialized manually with different credentials.
+
+**Local break-glass accounts:**
+
+| Service | Local account status |
+|---|---|
+| Authentik | Bootstrap admin remains available as the identity-provider break-glass account |
+| Jellyfin | Local admin is required for first-run setup and Jellyseerr API access; OIDC plugin setup is optional |
+| Audiobookshelf | Local root account remains enabled alongside OIDC |
+| Uptime Kuma | Local admin account is configured because Uptime Kuma has no native OIDC path here |
+| qBittorrent | Local WebUI credentials are configured, with Traefik forward auth as the external gate |
+| Vaultwarden | Admin panel uses `AUTHENTIK_BOOTSTRAP_TOKEN` from `.env` |
 
 **Still requires manual setup:**
 
@@ -392,7 +405,7 @@ To generate a new key at any time: `./scripts/configure-headscale.sh`
 
 **Optional:**
 
-- Jellyfin OIDC plugin — install from Jellyfin → Dashboard → Plugins → Catalog
+- Jellyfin OIDC plugin — install SSO Authentication from Jellyfin → Dashboard → Plugins → Catalog, then configure provider `authentik` with `JELLYFIN_OIDC_CLIENT_ID` / `JELLYFIN_OIDC_CLIENT_SECRET` from `.env`
 - Vaultwarden admin panel — `https://vault.yourdomain.com/admin`, password is `AUTHENTIK_BOOTSTRAP_TOKEN` from `.env`
 
 ---
@@ -419,8 +432,8 @@ docker compose logs -f authentik-server
 # Restart a single service
 docker compose restart sonarr
 
-# Pull latest images and redeploy
-docker compose pull && ./scripts/start.sh
+# Create a backup, pull configured image tags, and redeploy
+./scripts/update.sh --backup-first
 
 # Stop everything
 docker compose down
@@ -428,6 +441,21 @@ docker compose down
 # Stop everything and remove volumes (DESTRUCTIVE — deletes all data)
 docker compose down -v
 ```
+
+### Backup, restore, and updates
+
+```bash
+# Create a timestamped backup under ./backups
+./scripts/backup.sh
+
+# Restore a backup directory; overwrites local config and data
+./scripts/restore.sh --backup ./backups/20260504T120000Z --yes
+
+# Update only when a backup from the last 24h exists
+./scripts/update.sh
+```
+
+`scripts/update.sh` records the image state it replaced under `backups/update-manifests/` and refuses to run without a recent backup unless you pass `--skip-backup-check`.
 
 ### Storage Box — manual remount
 
