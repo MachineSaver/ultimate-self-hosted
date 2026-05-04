@@ -471,6 +471,10 @@ docker compose restart jellyfin audiobookshelf navidrome sonarr radarr lidarr qb
 
 Or do a clean restart via `./scripts/start.sh`, which re-checks the mount automatically.
 
+### Live acceptance check
+
+`./scripts/doctor.sh --runtime` is necessary but not sufficient for a deployed host. Before considering a live install or update verified, complete a real browser login through Authentik and open the primary user-facing apps, including Homarr, Grafana, Nextcloud, Audiobookshelf, Jellyfin, Uptime Kuma, and Vaultwarden. Browser-login failures are release blockers because they represent the actual user path through the system.
+
 ---
 
 ## Troubleshooting
