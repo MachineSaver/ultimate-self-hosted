@@ -38,11 +38,13 @@ http:
 
     # ──────────────────────────────────────────────────────────
     # rate-limit — basic DDoS protection
+    # Modern app shells such as Authentik load many JS chunks in parallel, so
+    # this must allow normal browser bursts while still limiting abuse.
     # ──────────────────────────────────────────────────────────
     rate-limit:
       rateLimit:
-        average: 100
-        burst: 50
+        average: 500
+        burst: 250
 
     # ──────────────────────────────────────────────────────────
     # compress — gzip responses
