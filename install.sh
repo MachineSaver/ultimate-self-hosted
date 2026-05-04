@@ -455,7 +455,7 @@ start_stack() {
         curl -sf -X PATCH \
           -H "Authorization: Bearer ${AUTHENTIK_BOOTSTRAP_TOKEN}" \
           -H "Content-Type: application/json" \
-          -d "{\"username\": \"${ADMIN_USER}\", \"name\": \"${ADMIN_USER}\"}" \
+          -d "{\"username\": \"${ADMIN_USER}\", \"name\": \"${ADMIN_USER}\", \"email\": \"${ADMIN_EMAIL}\"}" \
           "http://localhost:9000/api/v3/core/users/${user_pk}/" > /dev/null \
         && success "      Authentik admin username set to '${ADMIN_USER}'" \
         || warn "Could not rename akadmin — log in to Authentik as 'akadmin' and rename manually"
@@ -463,6 +463,10 @@ start_stack() {
       warn "Could not find akadmin user after 45s — log in to Authentik as 'akadmin' and rename manually"
     fi
   fi
+
+  docker compose exec -T -e ADMIN_USER="${ADMIN_USER}" -e ADMIN_EMAIL="${ADMIN_EMAIL}" authentik-server \
+    ak shell -c "import os; from authentik.core.models import User; user = User.objects.filter(username=os.environ['ADMIN_USER']).first() or User.objects.filter(username='akadmin').first(); setattr(user, 'email', os.environ['ADMIN_EMAIL']) if user else (_ for _ in ()).throw(Exception('admin user not found')); setattr(user, 'name', os.environ['ADMIN_USER']) if user else None; user.save() if user else None" > /dev/null 2>&1 \
+    || warn "Could not update Authentik admin email — verify OIDC email claims before Grafana login"
 
   info "      Ensuring Authentik admin is in the Homarr admin group..."
   homarr_group_configured=false

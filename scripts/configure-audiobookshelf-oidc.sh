@@ -98,3 +98,6 @@ async function main() {
 
 main().catch(e => { process.stderr.write(`ERROR: ${e.message}\n`); process.exit(1); });
 JSEOF
+
+echo "Restarting Audiobookshelf to reload OIDC strategy..."
+docker compose restart audiobookshelf >/dev/null
