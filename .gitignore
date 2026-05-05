@@ -16,3 +16,10 @@ backups/
 # OS
 .DS_Store
 Thumbs.db
+
+# Smoke tests — credentials and browser state
+tests/.env.test
+tests/.auth/
+tests/node_modules/
+tests/playwright-report/
+tests/test-results/
