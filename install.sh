@@ -790,6 +790,67 @@ verify_start_script() {
   success "scripts/start.sh is available"
 }
 
+# RUN_SMOKE is set to true by --smoke flag; left empty for interactive prompt
+RUN_SMOKE=""
+
+run_smoke_tests() {
+  [[ "${RUN_SMOKE}" == "false" ]] && return 0
+
+  local tests_dir="${SCRIPT_DIR}/tests"
+
+  if [[ ! -f "${tests_dir}/playwright.config.js" ]]; then
+    warn "Playwright tests not found at ${tests_dir} — skipping smoke tests"
+    return 0
+  fi
+
+  if ! command -v node &>/dev/null || ! command -v npx &>/dev/null; then
+    warn "Node.js not available — skipping smoke tests (install Node.js to enable)"
+    return 0
+  fi
+
+  # If not explicitly set by --smoke, ask interactively
+  if [[ -z "${RUN_SMOKE}" ]]; then
+    echo ""
+    read -rp "$(echo -e "${YELLOW}Run Playwright smoke tests against the live stack? [y/N]${NC}: ")" _run_smoke
+    [[ "${_run_smoke,,}" == "y" ]] || return 0
+  fi
+
+  step "Running smoke tests"
+
+  # Write .env.test from install credentials so tests hit the right stack
+  cat > "${tests_dir}/.env.test" <<EOF
+DOMAIN=${DOMAIN}
+ADMIN_USER=${ADMIN_USER}
+ADMIN_PASSWORD=${ADMIN_PASSWORD}
+ADMIN_EMAIL=${ADMIN_EMAIL}
+EOF
+
+  # Install npm dependencies if missing
+  if [[ ! -d "${tests_dir}/node_modules" ]]; then
+    info "Installing test dependencies..."
+    (cd "${tests_dir}" && npm ci --silent) \
+      || { warn "npm ci failed — skipping smoke tests"; return 0; }
+  fi
+
+  info "Ensuring Playwright Chromium browser is installed..."
+  (cd "${tests_dir}" && npx playwright install --with-deps chromium) \
+    || { warn "Playwright browser install failed — skipping smoke tests"; return 0; }
+
+  info "Running smoke tests (this may take a few minutes)..."
+  local smoke_exit=0
+  (cd "${tests_dir}" && npx playwright test --reporter=list) || smoke_exit=$?
+
+  if [[ $smoke_exit -eq 0 ]]; then
+    success "All smoke tests passed"
+  else
+    echo ""
+    warn "Some smoke tests failed (exit ${smoke_exit})"
+    warn "Check the Playwright HTML report: ${tests_dir}/playwright-report/index.html"
+    warn "Services are running — review failures and fix OIDC/auth config if needed"
+    echo ""
+  fi
+}
+
 main() {
   print_banner
   check_requirements
@@ -804,12 +865,18 @@ main() {
   start_stack
   configure_services
   verify_start_script
+  run_smoke_tests
   print_summary
 }
 
 if [[ "${1:-}" == "--check" ]]; then
   shift
   exec "${SCRIPT_DIR}/scripts/doctor.sh" "$@"
+fi
+
+if [[ "${1:-}" == "--smoke" ]]; then
+  RUN_SMOKE=true
+  shift
 fi
 
 main "$@"

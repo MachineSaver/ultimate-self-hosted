@@ -166,5 +166,5 @@ Initial CI coverage lives in `.github/workflows/checks.yml` and runs shell synta
 
 A Playwright browser smoke test suite now lives in `tests/smoke/` and covers all 15 services. It runs against the live stack and verifies that each service is reachable, auth passes end-to-end, and a key feature is accessible. Two improvements remain:
 
-- **Post-install verification**: the installer should optionally run `npx playwright test` against the freshly deployed stack so OIDC misconfigurations and unreachable services are caught before the user is handed a summary screen.
+- **Post-install verification**: implemented. After `configure_services`, the installer prompts to run `npx playwright test` (or auto-runs with `./install.sh --smoke`). Generates `tests/.env.test` from install credentials, installs dependencies if missing, runs the full smoke suite, and warns on failure without blocking the summary screen.
 - **CI smoke gate**: implemented in `tests/scripts/check-smoke-static.js` and wired into a `smoke-static` CI job. Checks that every expected spec file exists, that `helpers.js` and `global-setup.js` export the correct API, and runs `npx playwright test --list` to enumerate all tests — all without a live stack or browser.
