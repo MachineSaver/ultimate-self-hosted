@@ -272,8 +272,8 @@ db.transaction(() => {
   for (const cat of categories) {
     const sectionId = newId();
     db.prepare(`
-      INSERT INTO section (id, ${Q(SC.boardId)}, kind, name, options)
-      VALUES (?, ?, 'category', ?, ?)
+      INSERT INTO section (id, ${Q(SC.boardId)}, kind, name, options, x_offset, y_offset)
+      VALUES (?, ?, 'category', ?, ?, 0, 0)
     `).run(sectionId, boardId, cat.name, EMPTY);
 
     db.prepare(`
@@ -322,6 +322,27 @@ db.transaction(() => {
         `INSERT INTO "boardGroupPermission" (${Q(BGPC.boardId)}, ${Q(BGPC.groupId)}, permission) VALUES (?, ?, 'full')`
       ).run(boardId, group.id);
     }
+  }
+
+  // Set global default home board in serverSetting
+  const ssCols = db.prepare("PRAGMA table_info(serverSetting)").all().map(c => c.name);
+  if (ssCols.includes('setting_key') && ssCols.includes('value')) {
+    const ss = db.prepare("SELECT value FROM serverSetting WHERE setting_key = 'board'").get();
+    if (ss) {
+      const val = JSON.parse(ss.value);
+      val.json = val.json || {};
+      val.json.homeBoardId = boardId;
+      db.prepare("UPDATE serverSetting SET value = ? WHERE setting_key = 'board'").run(JSON.stringify(val));
+    }
+  }
+
+  // Apply home board to any existing users that don't have one yet
+  const userCols = db.prepare("PRAGMA table_info(user)").all().map(c => c.name);
+  const userHomeCol = userCols.includes('home_board_id') ? 'home_board_id'
+                    : userCols.includes('homeBoardId')   ? 'homeBoardId'
+                    : null;
+  if (userHomeCol) {
+    db.prepare(`UPDATE "user" SET ${Q(userHomeCol)} = ? WHERE ${Q(userHomeCol)} IS NULL`).run(boardId);
   }
 })();
 
