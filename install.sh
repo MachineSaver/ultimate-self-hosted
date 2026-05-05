@@ -329,6 +329,12 @@ create_directories() {
   # Grafana runs as UID/GID 472 — fix ownership so it can write its data dir
   chown -R 472:472 data/grafana 2>/dev/null || true
 
+  # Nextcloud runs as www-data (UID/GID 33). Its entrypoint only chowns /var/www/html
+  # on the very first boot (before version.php exists). On every subsequent container
+  # restart the chown is skipped, so any subdirs created by the installer as root/developer
+  # stay with wrong ownership and Nextcloud cannot read its own config.php.
+  chown -R 33:33 data/nextcloud 2>/dev/null || true
+
   # Pre-seed ARR service configs so they start with External auth.
   # Without this they default to Forms auth and show a second login screen
   # even though Authentik forward-auth is already protecting the route.
@@ -513,6 +519,7 @@ configure_services() {
   run_config_script "Audiobookshelf OIDC"     scripts/configure-audiobookshelf-oidc.sh
   run_config_script "Authentik Homarr OIDC"   scripts/configure-authentik-homarr-oidc.sh
   run_config_script "Homarr OIDC first run"   scripts/configure-homarr.sh
+  run_config_script "Booklore first run"       scripts/configure-booklore.sh
   run_config_script "Jellyfin first run"      scripts/configure-jellyfin.sh
   run_config_script "Jellyseerr first run"    scripts/configure-jellyseerr.sh
   run_config_script "Uptime Kuma admin"       scripts/configure-uptime-kuma.sh

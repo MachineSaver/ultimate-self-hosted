@@ -62,6 +62,7 @@ services:
     subdomain: books
     auth_method: forward_auth
     internal_port: 6060
+    post_install_script: scripts/configure-booklore.sh
     data_dirs:
       - ./data/booklore
       - ./data/booklore-db
