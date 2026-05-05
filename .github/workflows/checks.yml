@@ -27,3 +27,31 @@ jobs:
 
       - name: Run doctor
         run: ./install.sh --check
+
+  smoke-static:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: tests/package-lock.json
+
+      - name: Install test dependencies
+        working-directory: tests
+        run: npm ci
+
+      - name: Check JS syntax
+        run: node --check tests/smoke/helpers.js tests/smoke/global-setup.js tests/smoke/*.spec.js
+
+      - name: Check smoke suite structure
+        run: node tests/scripts/check-smoke-static.js
+
+      - name: List all smoke tests
+        working-directory: tests
+        run: npx playwright test --list
