@@ -109,6 +109,13 @@ Implementation should prefer service APIs first, stable config edits second, and
 
 Current automation configures native OIDC for Homarr, Nextcloud, Audiobookshelf, Grafana, and Vaultwarden, plus an Authentik OIDC client for Jellyfin's optional SSO plugin. The README documents remaining local break-glass accounts explicitly; Jellyfin plugin installation remains optional because it still requires a plugin install step inside Jellyfin.
 
+Known OIDC gaps discovered during live browser testing:
+
+- **Audiobookshelf** (ISSUE-013): `configure-audiobookshelf.sh` registers the wrong callback URL — it omits the `/audiobookshelf` base path. The redirect URI must be `https://audiobooks.<domain>/audiobookshelf/auth/openid/callback`. Fix the script and update the Authentik provider registration.
+- **Nextcloud** (ISSUE-011): The Nextcloud container's first-run setup did not produce a valid `config.php`. OIDC configuration cannot be tested until the service initialises correctly.
+- **Headscale** (ISSUE-015): The Authentik outpost for `headscale.<domain>` completes the OIDC code exchange but never issues the final redirect back to `/web`. The outpost container likely cannot reach `auth.<domain>` over the internal network, or the provider registration is mismatched.
+- **Booklore** (ISSUE-014): No `configure-booklore.sh` script exists. The service lands on its first-run `/setup` wizard after install. A configure script should create the initial admin account via the Booklore API so the service is usable immediately after install.
+
 ## Version And Update Policy
 
 Document and automate a safer update process:
@@ -154,3 +161,8 @@ Add basic repository checks:
 These checks would catch many regressions before users discover them during installation.
 
 Initial CI coverage lives in `.github/workflows/checks.yml` and runs shell syntax, ShellCheck, and the doctor command.
+
+A Playwright browser smoke test suite now lives in `tests/smoke/` and covers all 15 services. It runs against the live stack and verifies that each service is reachable, auth passes end-to-end, and a key feature is accessible. Two improvements remain:
+
+- **Post-install verification**: the installer should optionally run `npx playwright test` against the freshly deployed stack so OIDC misconfigurations and unreachable services are caught before the user is handed a summary screen.
+- **CI smoke gate**: the smoke suite cannot easily run in a standard CI runner (no live stack), but a subset of static checks — verifying that each test file exists, that selectors compile, and that helper utilities export the expected API — could run in CI to catch regressions before deployment.
