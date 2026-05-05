@@ -1,0 +1,290 @@
+# ================================================================
+# Media stack: streaming server, request management, audiobooks,
+# music, download automation, ebook library.
+# Requires compose.core.yml (proxy network, postgres, redis).
+# ================================================================
+
+services:
+
+  # ──────────────────────────────────────────────────────────────
+  # JELLYFIN — Media server (forward auth; enable OIDC plugin separately)
+  # ──────────────────────────────────────────────────────────────
+  jellyfin:
+    image: jellyfin/jellyfin:10.10.7
+    container_name: jellyfin
+    restart: unless-stopped
+    environment:
+      JELLYFIN_PublishedServerUrl: "https://jellyfin.${DOMAIN}"
+      TZ: ${TZ}
+    volumes:
+      - ./data/jellyfin/config:/config
+      - ./data/jellyfin/cache:/cache
+      - ${MEDIA_DIR}:/media:ro
+    networks:
+      - proxy
+    # Uncomment for GPU transcoding:
+    # devices:
+    #   - /dev/dri:/dev/dri
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.jellyfin.rule=Host(`jellyfin.${DOMAIN}`)"
+      - "traefik.http.routers.jellyfin.entrypoints=websecure"
+      - "traefik.http.routers.jellyfin.tls.certresolver=letsencrypt"
+      - "traefik.http.services.jellyfin.loadbalancer.server.port=8096"
+      - "traefik.http.routers.jellyfin.middlewares=authentik@file"
+
+  # ──────────────────────────────────────────────────────────────
+  # JELLYSEERR — Media request management (forward auth)
+  # ──────────────────────────────────────────────────────────────
+  jellyseerr:
+    image: fallenbagel/jellyseerr:2.7.3
+    container_name: jellyseerr
+    restart: unless-stopped
+    environment:
+      TZ: ${TZ}
+      LOG_LEVEL: info
+    volumes:
+      - ./data/jellyseerr:/app/config
+    networks:
+      - proxy
+    depends_on:
+      - jellyfin
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.jellyseerr.rule=Host(`requests.${DOMAIN}`)"
+      - "traefik.http.routers.jellyseerr.entrypoints=websecure"
+      - "traefik.http.routers.jellyseerr.tls.certresolver=letsencrypt"
+      - "traefik.http.services.jellyseerr.loadbalancer.server.port=5055"
+      - "traefik.http.routers.jellyseerr.middlewares=authentik@file"
+
+  # ──────────────────────────────────────────────────────────────
+  # AUDIOBOOKSHELF — Audiobooks & podcasts (native OIDC)
+  # ──────────────────────────────────────────────────────────────
+  audiobookshelf:
+    image: ghcr.io/advplyr/audiobookshelf:2.34.0
+    container_name: audiobookshelf
+    restart: unless-stopped
+    environment:
+      PORT: "13378"
+      TZ: ${TZ}
+    volumes:
+      - ./data/audiobookshelf/config:/config
+      - ./data/audiobookshelf/metadata:/metadata
+      - ${MEDIA_DIR}/audiobooks:/audiobooks
+      - ${MEDIA_DIR}/podcasts:/podcasts
+    networks:
+      - proxy
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.audiobookshelf.rule=Host(`audiobooks.${DOMAIN}`)"
+      - "traefik.http.routers.audiobookshelf.entrypoints=websecure"
+      - "traefik.http.routers.audiobookshelf.tls.certresolver=letsencrypt"
+      - "traefik.http.services.audiobookshelf.loadbalancer.server.port=13378"
+      # No forward auth — ABS handles OIDC natively; configure via ABS UI
+
+  # ──────────────────────────────────────────────────────────────
+  # BOOKLORE — Ebook library (forward auth)
+  # ──────────────────────────────────────────────────────────────
+  booklore-db:
+    image: lscr.io/linuxserver/mariadb:11.4.8
+    container_name: booklore-db
+    restart: unless-stopped
+    environment:
+      PUID: ${PUID}
+      PGID: ${PGID}
+      TZ: ${TZ}
+      MYSQL_ROOT_PASSWORD: ${BOOKLORE_DB_ROOT_PASSWORD}
+      MYSQL_DATABASE: booklore
+      MYSQL_USER: booklore
+      MYSQL_PASSWORD: ${BOOKLORE_DB_PASSWORD}
+    volumes:
+      - ./data/booklore-db:/config
+    networks:
+      - internal
+    healthcheck:
+      test: ["CMD", "mariadb-admin", "ping", "-h", "localhost"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  booklore:
+    image: ghcr.io/the-booklore/booklore:v2.2.2
+    container_name: booklore
+    restart: unless-stopped
+    depends_on:
+      booklore-db:
+        condition: service_healthy
+    environment:
+      USER_ID: ${PUID}
+      GROUP_ID: ${PGID}
+      TZ: ${TZ}
+      DATABASE_URL: jdbc:mariadb://booklore-db:3306/booklore
+      DATABASE_USERNAME: booklore
+      DATABASE_PASSWORD: ${BOOKLORE_DB_PASSWORD}
+      SWAGGER_ENABLED: "false"
+      FORCE_DISABLE_OIDC: "false"
+    volumes:
+      - ./data/booklore:/app/data
+      - ${MEDIA_DIR}/books:/books
+      - ./data/booklore-bookdrop:/bookdrop
+    networks:
+      - proxy
+      - internal
+    healthcheck:
+      test: wget -q -O - http://localhost:6060/api/v1/healthcheck
+      interval: 60s
+      retries: 5
+      start_period: 60s
+      timeout: 10s
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.booklore.rule=Host(`books.${DOMAIN}`)"
+      - "traefik.http.routers.booklore.entrypoints=websecure"
+      - "traefik.http.routers.booklore.tls.certresolver=letsencrypt"
+      - "traefik.http.services.booklore.loadbalancer.server.port=6060"
+      - "traefik.http.routers.booklore.middlewares=authentik@file"
+
+  # ──────────────────────────────────────────────────────────────
+  # NAVIDROME — Music streaming (forward auth + header passthrough)
+  # ──────────────────────────────────────────────────────────────
+  navidrome:
+    image: deluan/navidrome:0.61.2
+    container_name: navidrome
+    restart: unless-stopped
+    user: "${PUID}:${PGID}"
+    environment:
+      ND_SCANSCHEDULE: 1h
+      ND_LOGLEVEL: info
+      ND_SESSIONTIMEOUT: 24h
+      ND_BASEURL: ""
+      # Trust the username header injected by Authentik
+      ND_REVERSEPROXYUSERHEADER: X-authentik-username
+      ND_REVERSEPROXYWHITELIST: "0.0.0.0/0"
+    volumes:
+      - ./data/navidrome:/data
+      - ${MEDIA_DIR}/music:/music:ro
+    networks:
+      - proxy
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.navidrome.rule=Host(`music.${DOMAIN}`)"
+      - "traefik.http.routers.navidrome.entrypoints=websecure"
+      - "traefik.http.routers.navidrome.tls.certresolver=letsencrypt"
+      - "traefik.http.services.navidrome.loadbalancer.server.port=4533"
+      - "traefik.http.routers.navidrome.middlewares=authentik@file"
+
+  # ──────────────────────────────────────────────────────────────
+  # ARR STACK — Media management (forward auth; set Auth=External in UI)
+  # ──────────────────────────────────────────────────────────────
+  sonarr:
+    image: lscr.io/linuxserver/sonarr:4.0.17.2952-ls309
+    container_name: sonarr
+    restart: unless-stopped
+    environment:
+      PUID: ${PUID}
+      PGID: ${PGID}
+      TZ: ${TZ}
+    volumes:
+      - ./data/sonarr:/config
+      - ${MEDIA_DIR}/tv:/tv
+      - ${DOWNLOADS_DIR}:/downloads
+    networks:
+      - proxy
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.sonarr.rule=Host(`sonarr.${DOMAIN}`)"
+      - "traefik.http.routers.sonarr.entrypoints=websecure"
+      - "traefik.http.routers.sonarr.tls.certresolver=letsencrypt"
+      - "traefik.http.services.sonarr.loadbalancer.server.port=8989"
+      - "traefik.http.routers.sonarr.middlewares=authentik@file"
+
+  radarr:
+    image: lscr.io/linuxserver/radarr:6.1.1.10360-ls300
+    container_name: radarr
+    restart: unless-stopped
+    environment:
+      PUID: ${PUID}
+      PGID: ${PGID}
+      TZ: ${TZ}
+    volumes:
+      - ./data/radarr:/config
+      - ${MEDIA_DIR}/movies:/movies
+      - ${DOWNLOADS_DIR}:/downloads
+    networks:
+      - proxy
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.radarr.rule=Host(`radarr.${DOMAIN}`)"
+      - "traefik.http.routers.radarr.entrypoints=websecure"
+      - "traefik.http.routers.radarr.tls.certresolver=letsencrypt"
+      - "traefik.http.services.radarr.loadbalancer.server.port=7878"
+      - "traefik.http.routers.radarr.middlewares=authentik@file"
+
+  lidarr:
+    image: lscr.io/linuxserver/lidarr:3.1.0.4875-ls26
+    container_name: lidarr
+    restart: unless-stopped
+    environment:
+      PUID: ${PUID}
+      PGID: ${PGID}
+      TZ: ${TZ}
+    volumes:
+      - ./data/lidarr:/config
+      - ${MEDIA_DIR}/music:/music
+      - ${DOWNLOADS_DIR}:/downloads
+    networks:
+      - proxy
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.lidarr.rule=Host(`lidarr.${DOMAIN}`)"
+      - "traefik.http.routers.lidarr.entrypoints=websecure"
+      - "traefik.http.routers.lidarr.tls.certresolver=letsencrypt"
+      - "traefik.http.services.lidarr.loadbalancer.server.port=8686"
+      - "traefik.http.routers.lidarr.middlewares=authentik@file"
+
+  prowlarr:
+    image: lscr.io/linuxserver/prowlarr:2.3.5.5327-ls144
+    container_name: prowlarr
+    restart: unless-stopped
+    environment:
+      PUID: ${PUID}
+      PGID: ${PGID}
+      TZ: ${TZ}
+    volumes:
+      - ./data/prowlarr:/config
+    networks:
+      - proxy
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.prowlarr.rule=Host(`prowlarr.${DOMAIN}`)"
+      - "traefik.http.routers.prowlarr.entrypoints=websecure"
+      - "traefik.http.routers.prowlarr.tls.certresolver=letsencrypt"
+      - "traefik.http.services.prowlarr.loadbalancer.server.port=9696"
+      - "traefik.http.routers.prowlarr.middlewares=authentik@file"
+
+  # ──────────────────────────────────────────────────────────────
+  # QBITTORRENT — Download client (forward auth)
+  # ──────────────────────────────────────────────────────────────
+  qbittorrent:
+    image: lscr.io/linuxserver/qbittorrent:5.1.4-r3-ls452
+    container_name: qbittorrent
+    restart: unless-stopped
+    environment:
+      PUID: ${PUID}
+      PGID: ${PGID}
+      TZ: ${TZ}
+      WEBUI_PORT: "8080"
+    volumes:
+      - ./data/qbittorrent:/config
+      - ${DOWNLOADS_DIR}:/downloads
+    networks:
+      - proxy
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.qbittorrent.rule=Host(`qbit.${DOMAIN}`)"
+      - "traefik.http.routers.qbittorrent.entrypoints=websecure"
+      - "traefik.http.routers.qbittorrent.tls.certresolver=letsencrypt"
+      - "traefik.http.services.qbittorrent.loadbalancer.server.port=8080"
+      - "traefik.http.routers.qbittorrent.middlewares=authentik@file"
+      # qBittorrent requires the host header to match; strip and re-add
+      - "traefik.http.middlewares.qbit-headers.headers.customrequestheaders.X-Forwarded-Host=qbit.${DOMAIN}"

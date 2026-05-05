@@ -296,7 +296,8 @@ check_compose_config() {
   env_file="$(mktemp)"
   env_or_sample "$env_file"
 
-  if docker compose --env-file "$env_file" config >/tmp/ultimate-self-hosted-compose-config.yml 2>/tmp/ultimate-self-hosted-compose-config.err; then
+  local compose_files=(-f compose.core.yml -f compose.cloud.yml -f compose.media.yml -f compose.monitoring.yml -f compose.vpn.yml)
+  if docker compose "${compose_files[@]}" --env-file "$env_file" config >/tmp/ultimate-self-hosted-compose-config.yml 2>/tmp/ultimate-self-hosted-compose-config.err; then
     pass "Docker Compose config renders"
   else
     fail "Docker Compose config failed to render"
@@ -308,7 +309,7 @@ check_compose_config() {
 
 check_no_latest_images() {
   local latest
-  latest=$(grep -nE 'image: .+:(latest|2)$' docker-compose.yml || true)
+  latest=$(grep -nE 'image: .+:(latest|2)$' compose.core.yml compose.cloud.yml compose.media.yml compose.monitoring.yml compose.vpn.yml 2>/dev/null || true)
   if [[ -z "$latest" ]]; then
     pass "Compose images do not use floating latest tags"
   else

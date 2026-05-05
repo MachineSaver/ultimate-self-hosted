@@ -50,8 +50,10 @@ done
 [[ -f "${BACKUP_DIR}/project-config.tgz" ]] || { echo "Missing project-config.tgz in ${BACKUP_DIR}" >&2; exit 1; }
 [[ "${CONFIRM}" == "true" ]] || { echo "Refusing to restore without --yes because this overwrites local state." >&2; exit 2; }
 
+COMPOSE_FILES=(-f compose.core.yml -f compose.cloud.yml -f compose.media.yml -f compose.monitoring.yml -f compose.vpn.yml)
+
 echo "[restore] Stopping stack..."
-docker compose down
+docker compose "${COMPOSE_FILES[@]}" down
 
 echo "[restore] Restoring project config..."
 tar -xzf "${BACKUP_DIR}/project-config.tgz"
@@ -65,28 +67,28 @@ else
 fi
 
 echo "[restore] Starting database containers..."
-docker compose up -d postgres booklore-db
+docker compose "${COMPOSE_FILES[@]}" up -d postgres booklore-db
 
 if [[ -f "${BACKUP_DIR}/db/postgres.sql" ]]; then
   echo "[restore] Restoring PostgreSQL dump..."
-  until docker compose exec -T postgres pg_isready -U postgres >/dev/null 2>&1; do
+  until docker compose "${COMPOSE_FILES[@]}" exec -T postgres pg_isready -U postgres >/dev/null 2>&1; do
     sleep 2
   done
-  docker compose exec -T postgres psql -U postgres < "${BACKUP_DIR}/db/postgres.sql"
+  docker compose "${COMPOSE_FILES[@]}" exec -T postgres psql -U postgres < "${BACKUP_DIR}/db/postgres.sql"
 fi
 
 if [[ -f "${BACKUP_DIR}/db/booklore-mariadb.sql" ]]; then
   echo "[restore] Restoring Booklore MariaDB dump..."
-  until docker compose exec -T booklore-db mariadb-admin ping -h localhost >/dev/null 2>&1; do
+  until docker compose "${COMPOSE_FILES[@]}" exec -T booklore-db mariadb-admin ping -h localhost >/dev/null 2>&1; do
     sleep 2
   done
-  docker compose exec -T booklore-db sh -lc 'mariadb -uroot -p"$MYSQL_ROOT_PASSWORD"' < "${BACKUP_DIR}/db/booklore-mariadb.sql"
+  docker compose "${COMPOSE_FILES[@]}" exec -T booklore-db sh -lc 'mariadb -uroot -p"$MYSQL_ROOT_PASSWORD"' < "${BACKUP_DIR}/db/booklore-mariadb.sql"
 elif [[ -f "${BACKUP_DIR}/db/booklore.sql" ]]; then
   echo "[restore] Restoring Booklore application database dump..."
-  until docker compose exec -T booklore-db mariadb-admin ping -h localhost >/dev/null 2>&1; do
+  until docker compose "${COMPOSE_FILES[@]}" exec -T booklore-db mariadb-admin ping -h localhost >/dev/null 2>&1; do
     sleep 2
   done
-  docker compose exec -T booklore-db sh -lc 'mariadb -u"$MYSQL_USER" -p"$MYSQL_PASSWORD" "$MYSQL_DATABASE"' < "${BACKUP_DIR}/db/booklore.sql"
+  docker compose "${COMPOSE_FILES[@]}" exec -T booklore-db sh -lc 'mariadb -u"$MYSQL_USER" -p"$MYSQL_PASSWORD" "$MYSQL_DATABASE"' < "${BACKUP_DIR}/db/booklore.sql"
 fi
 
 echo "[restore] Restore complete. Start the full stack with ./scripts/start.sh."

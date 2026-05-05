@@ -71,4 +71,5 @@ if [[ "${USE_STORAGE_BOX:-false}" == "true" ]]; then
   fi
 fi
 
-exec docker compose up -d "$@"
+COMPOSE_FILES=(-f compose.core.yml -f compose.cloud.yml -f compose.media.yml -f compose.monitoring.yml -f compose.vpn.yml)
+exec docker compose "${COMPOSE_FILES[@]}" up -d "$@"

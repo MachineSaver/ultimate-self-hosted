@@ -404,18 +404,20 @@ process_templates() {
 start_stack() {
   step "Starting the stack"
 
+  local COMPOSE_FILES=(-f compose.core.yml -f compose.cloud.yml -f compose.media.yml -f compose.monitoring.yml -f compose.vpn.yml)
+
   info "[1/5] Pulling images (this may take several minutes)..."
-  if ! docker compose pull --quiet; then
+  if ! docker compose "${COMPOSE_FILES[@]}" pull --quiet; then
     warn "Some image pulls failed. Continuing with locally cached images where available."
     warn "If startup fails with a missing image, authenticate to the registry or retry later."
   fi
 
   info "[2/5] Starting databases..."
-  docker compose up -d postgres redis
+  docker compose "${COMPOSE_FILES[@]}" up -d postgres redis
 
   info "      Waiting for PostgreSQL..."
   local retries=0
-  until docker compose exec -T postgres pg_isready -U postgres &>/dev/null; do
+  until docker compose "${COMPOSE_FILES[@]}" exec -T postgres pg_isready -U postgres &>/dev/null; do
     retries=$((retries+1))
     [[ $retries -gt 30 ]] && die "PostgreSQL did not become healthy in time"
     sleep 2
@@ -424,7 +426,7 @@ start_stack() {
 
   info "      Waiting for Redis..."
   retries=0
-  until docker compose exec -T redis redis-cli -a "${REDIS_PASSWORD}" ping &>/dev/null; do
+  until docker compose "${COMPOSE_FILES[@]}" exec -T redis redis-cli -a "${REDIS_PASSWORD}" ping &>/dev/null; do
     retries=$((retries+1))
     [[ $retries -gt 20 ]] && die "Redis did not become healthy in time"
     sleep 2
@@ -432,13 +434,13 @@ start_stack() {
   success "      Redis ready"
 
   info "[3/5] Starting Authentik (first run takes ~90s)..."
-  docker compose up -d authentik-server authentik-worker
+  docker compose "${COMPOSE_FILES[@]}" up -d authentik-server authentik-worker
 
   info "      Waiting for Authentik API (first run runs DB migrations — allow ~90s)..."
   retries=0
-  until docker compose exec -T authentik-server /lifecycle/ak healthcheck &>/dev/null 2>&1; do
+  until docker compose "${COMPOSE_FILES[@]}" exec -T authentik-server /lifecycle/ak healthcheck &>/dev/null 2>&1; do
     retries=$((retries+1))
-    [[ $retries -gt 60 ]] && die "Authentik did not become healthy after ~3 minutes. Check: docker compose logs authentik-server"
+    [[ $retries -gt 60 ]] && die "Authentik did not become healthy after ~3 minutes. Check: docker logs authentik-server"
     sleep 3
   done
   success "      Authentik ready"
@@ -448,7 +450,7 @@ start_stack() {
     # Bootstrap writes akadmin AFTER the healthcheck passes — retry until the token is valid
     local user_pk="" rename_retries=0
     until [[ -n "$user_pk" ]] || [[ $rename_retries -gt 15 ]]; do
-      user_pk=$(docker compose exec -T authentik-server \
+      user_pk=$(docker compose "${COMPOSE_FILES[@]}" exec -T authentik-server \
         curl -sf \
           -H "Authorization: Bearer ${AUTHENTIK_BOOTSTRAP_TOKEN}" \
           "http://localhost:9000/api/v3/core/users/?username=akadmin" \
@@ -457,7 +459,7 @@ start_stack() {
     done
 
     if [[ -n "$user_pk" ]]; then
-      docker compose exec -T authentik-server \
+      docker compose "${COMPOSE_FILES[@]}" exec -T authentik-server \
         curl -sf -X PATCH \
           -H "Authorization: Bearer ${AUTHENTIK_BOOTSTRAP_TOKEN}" \
           -H "Content-Type: application/json" \
@@ -470,14 +472,14 @@ start_stack() {
     fi
   fi
 
-  docker compose exec -T -e ADMIN_USER="${ADMIN_USER}" -e ADMIN_EMAIL="${ADMIN_EMAIL}" authentik-server \
+  docker compose "${COMPOSE_FILES[@]}" exec -T -e ADMIN_USER="${ADMIN_USER}" -e ADMIN_EMAIL="${ADMIN_EMAIL}" authentik-server \
     ak shell -c "import os; from authentik.core.models import User; user = User.objects.filter(username=os.environ['ADMIN_USER']).first() or User.objects.filter(username='akadmin').first(); setattr(user, 'email', os.environ['ADMIN_EMAIL']) if user else (_ for _ in ()).throw(Exception('admin user not found')); setattr(user, 'name', os.environ['ADMIN_USER']) if user else None; user.save() if user else None" > /dev/null 2>&1 \
     || warn "Could not update Authentik admin email — verify OIDC email claims before Grafana login"
 
   info "      Ensuring Authentik admin is in the Homarr admin group..."
   homarr_group_configured=false
   for _ in {1..20}; do
-    if docker compose exec -T -e ADMIN_USER="${ADMIN_USER}" authentik-server \
+    if docker compose "${COMPOSE_FILES[@]}" exec -T -e ADMIN_USER="${ADMIN_USER}" authentik-server \
       ak shell -c "import os; from authentik.core.models import Group, User; group, _ = Group.objects.get_or_create(name='homarr-admins'); user = User.objects.filter(username=os.environ['ADMIN_USER']).first() or User.objects.filter(username='akadmin').first(); user.groups.add(group) if user else (_ for _ in ()).throw(Exception('admin user not found'))" > /dev/null 2>&1; then
       homarr_group_configured=true
       break
@@ -491,7 +493,7 @@ start_stack() {
   fi
 
   info "[4/5] Starting remaining services..."
-  docker compose up -d
+  docker compose "${COMPOSE_FILES[@]}" up -d
 
   info "[5/5] Waiting for all services to stabilize..."
   sleep 10
@@ -614,8 +616,8 @@ DONE
   echo ""
 
   echo -e "  Start:  ${CYAN}./scripts/start.sh${NC}  (checks Storage Box, then brings stack up)"
-  echo -e "  Logs:   ${CYAN}docker compose logs -f [service]${NC}"
-  echo -e "  Stop:   ${CYAN}docker compose down${NC}"
+  echo -e "  Logs:   ${CYAN}docker logs -f [container]${NC}  (e.g. docker logs -f jellyfin)"
+  echo -e "  Stop:   ${CYAN}docker compose -f compose.core.yml -f compose.cloud.yml -f compose.media.yml -f compose.monitoring.yml -f compose.vpn.yml down${NC}"
   echo -e "  Backup: ${CYAN}./scripts/backup.sh${NC}"
   echo -e "  Update: ${CYAN}./scripts/update.sh --backup-first${NC}"
   echo ""

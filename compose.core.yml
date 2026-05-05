@@ -1,0 +1,199 @@
+# ================================================================
+# Core infrastructure: reverse proxy, databases, identity provider,
+# and home dashboard.
+# Always include this file when running docker compose.
+# ================================================================
+
+networks:
+  proxy:
+    name: proxy
+    driver: bridge
+  internal:
+    name: internal
+    driver: bridge
+    internal: true
+
+volumes:
+  postgres_data:
+  redis_data:
+
+services:
+
+  # ──────────────────────────────────────────────────────────────
+  # TRAEFIK — Reverse proxy + automatic SSL
+  # ──────────────────────────────────────────────────────────────
+  traefik:
+    image: traefik:v3.6
+    container_name: traefik
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./config/traefik/traefik.yml:/etc/traefik/traefik.yml:ro
+      - ./config/traefik/dynamic:/etc/traefik/dynamic:ro
+      - ./data/traefik/acme.json:/acme.json
+    networks:
+      - proxy
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.traefik-dash.rule=Host(`traefik.${DOMAIN}`)"
+      - "traefik.http.routers.traefik-dash.entrypoints=websecure"
+      - "traefik.http.routers.traefik-dash.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.traefik-dash.service=api@internal"
+      - "traefik.http.routers.traefik-dash.middlewares=authentik@file"
+
+  # ──────────────────────────────────────────────────────────────
+  # POSTGRESQL — Shared database (Authentik + Nextcloud)
+  # ──────────────────────────────────────────────────────────────
+  postgres:
+    image: postgres:17-alpine
+    container_name: postgres
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - ./config/postgres/init.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - internal
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 15s
+
+  # ──────────────────────────────────────────────────────────────
+  # REDIS — Shared cache (Authentik DB0, Nextcloud DB1)
+  # ──────────────────────────────────────────────────────────────
+  redis:
+    image: redis:8-alpine
+    container_name: redis
+    restart: unless-stopped
+    command: redis-server --requirepass ${REDIS_PASSWORD} --save 60 1 --loglevel warning
+    volumes:
+      - redis_data:/data
+    networks:
+      - internal
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  # ──────────────────────────────────────────────────────────────
+  # AUTHENTIK — Identity Provider & SSO
+  # ──────────────────────────────────────────────────────────────
+  authentik-server:
+    image: ghcr.io/goauthentik/server:2026.2.2
+    container_name: authentik-server
+    restart: unless-stopped
+    command: server
+    environment:
+      AUTHENTIK_REDIS__HOST: redis
+      AUTHENTIK_REDIS__PASSWORD: ${REDIS_PASSWORD}
+      AUTHENTIK_POSTGRESQL__HOST: postgres
+      AUTHENTIK_POSTGRESQL__USER: authentik
+      AUTHENTIK_POSTGRESQL__PASSWORD: ${POSTGRES_PASSWORD}
+      AUTHENTIK_POSTGRESQL__NAME: authentik
+      AUTHENTIK_SECRET_KEY: ${AUTHENTIK_SECRET_KEY}
+      AUTHENTIK_BOOTSTRAP_EMAIL: ${ADMIN_EMAIL}
+      AUTHENTIK_BOOTSTRAP_PASSWORD: ${ADMIN_PASSWORD}
+      AUTHENTIK_BOOTSTRAP_TOKEN: ${AUTHENTIK_BOOTSTRAP_TOKEN}
+      AUTHENTIK_ERROR_REPORTING__ENABLED: "false"
+      AUTHENTIK_DISABLE_STARTUP_ANALYTICS: "true"
+      AUTHENTIK_DEFAULT_USER_CHANGE_NAME: "false"
+      AUTHENTIK_DEFAULT_USER_CHANGE_EMAIL: "false"
+    volumes:
+      - ./data/authentik/media:/media
+      - ./data/authentik/custom-templates:/templates
+      - ./config/authentik/blueprints:/blueprints/custom
+    networks:
+      - proxy
+      - internal
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    labels:
+      - "traefik.enable=true"
+      # Main Authentik UI
+      - "traefik.http.routers.authentik.rule=Host(`auth.${DOMAIN}`)"
+      - "traefik.http.routers.authentik.entrypoints=websecure"
+      - "traefik.http.routers.authentik.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.authentik.service=authentik"
+      - "traefik.http.services.authentik.loadbalancer.server.port=9000"
+      # Outpost endpoint — must be reachable on all protected subdomains for
+      # the forward-auth cookie flow to redirect correctly
+      - "traefik.http.routers.authentik-outpost.rule=HostRegexp(`[a-z0-9-]+\\.${DOMAIN}`) && PathPrefix(`/outpost.goauthentik.io/`)"
+      - "traefik.http.routers.authentik-outpost.entrypoints=websecure"
+      - "traefik.http.routers.authentik-outpost.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.authentik-outpost.service=authentik-outpost-svc"
+      - "traefik.http.services.authentik-outpost-svc.loadbalancer.server.port=9000"
+      - "traefik.http.routers.authentik-outpost.priority=10"
+
+  authentik-worker:
+    image: ghcr.io/goauthentik/server:2026.2.2
+    container_name: authentik-worker
+    restart: unless-stopped
+    command: worker
+    environment:
+      AUTHENTIK_REDIS__HOST: redis
+      AUTHENTIK_REDIS__PASSWORD: ${REDIS_PASSWORD}
+      AUTHENTIK_POSTGRESQL__HOST: postgres
+      AUTHENTIK_POSTGRESQL__USER: authentik
+      AUTHENTIK_POSTGRESQL__PASSWORD: ${POSTGRES_PASSWORD}
+      AUTHENTIK_POSTGRESQL__NAME: authentik
+      AUTHENTIK_SECRET_KEY: ${AUTHENTIK_SECRET_KEY}
+      AUTHENTIK_BOOTSTRAP_EMAIL: ${ADMIN_EMAIL}
+      AUTHENTIK_BOOTSTRAP_PASSWORD: ${ADMIN_PASSWORD}
+      AUTHENTIK_BOOTSTRAP_TOKEN: ${AUTHENTIK_BOOTSTRAP_TOKEN}
+      AUTHENTIK_ERROR_REPORTING__ENABLED: "false"
+    volumes:
+      - ./data/authentik/media:/media
+      - ./config/authentik/blueprints:/blueprints/custom
+      - /var/run/docker.sock:/var/run/docker.sock
+    networks:
+      - internal
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  # ──────────────────────────────────────────────────────────────
+  # HOMARR — Home Dashboard (native OIDC)
+  # ──────────────────────────────────────────────────────────────
+  homarr:
+    image: ghcr.io/homarr-labs/homarr:v1.59.3
+    container_name: homarr
+    restart: unless-stopped
+    environment:
+      SECRET_ENCRYPTION_KEY: ${HOMARR_SECRET_KEY}
+      AUTH_PROVIDERS: oidc
+      AUTH_OIDC_CLIENT_NAME: Authentik
+      AUTH_OIDC_ISSUER: "https://auth.${DOMAIN}/application/o/homarr/"
+      AUTH_OIDC_CLIENT_ID: ${HOMARR_OIDC_CLIENT_ID}
+      AUTH_OIDC_CLIENT_SECRET: ${HOMARR_OIDC_CLIENT_SECRET}
+      AUTH_OIDC_CALLBACK_URL: "https://home.${DOMAIN}/api/auth/callback/oidc"
+      AUTH_OIDC_SCOPE_OVERWRITE: "openid email profile groups"
+      AUTH_OIDC_GROUPS_CLAIM: groups
+    volumes:
+      - ./data/homarr/appdata:/appdata
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks:
+      - proxy
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.homarr.rule=Host(`home.${DOMAIN}`)"
+      - "traefik.http.routers.homarr.entrypoints=websecure"
+      - "traefik.http.routers.homarr.tls.certresolver=letsencrypt"
+      - "traefik.http.services.homarr.loadbalancer.server.port=7575"

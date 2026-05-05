@@ -13,6 +13,8 @@ Split the single large `docker-compose.yml` into domain-focused files such as:
 
 This would make service ownership clearer and allow partial stack installs or updates.
 
+Implemented as five files: `compose.core.yml` (Traefik, Postgres, Redis, Authentik, Homarr), `compose.cloud.yml` (Nextcloud, Vaultwarden), `compose.media.yml` (Jellyfin, Jellyseerr, Audiobookshelf, Navidrome, arr stack, qBittorrent, Booklore), `compose.monitoring.yml` (Prometheus, Grafana, Uptime Kuma, exporters), and `compose.vpn.yml` (Headscale, wg-easy). All scripts define a `COMPOSE_FILES` array and pass all five files to every `docker compose` invocation so cross-file `depends_on` and shared networks continue to work. The monolithic `docker-compose.yml` has been removed.
+
 ## Shared Compose Patterns
 
 Introduce YAML anchors or generated snippets for repeated patterns:

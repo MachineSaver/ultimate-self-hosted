@@ -428,22 +428,22 @@ Always use `scripts/start.sh` rather than `docker compose up -d` directly. It ve
 
 ```bash
 # View all running containers
-docker compose ps
+docker ps
 
-# Follow logs for a service
-docker compose logs -f authentik-server
+# Follow logs for a service (container names match service names)
+docker logs -f authentik-server
 
 # Restart a single service
-docker compose restart sonarr
+docker restart sonarr
 
 # Create a backup, pull configured image tags, and redeploy
 ./scripts/update.sh --backup-first
 
-# Stop everything
-docker compose down
+# Stop everything (pass all compose files so networks are cleaned up)
+docker compose -f compose.core.yml -f compose.cloud.yml -f compose.media.yml -f compose.monitoring.yml -f compose.vpn.yml down
 
 # Stop everything and remove volumes (DESTRUCTIVE — deletes all data)
-docker compose down -v
+docker compose -f compose.core.yml -f compose.cloud.yml -f compose.media.yml -f compose.monitoring.yml -f compose.vpn.yml down -v
 ```
 
 ### Backup, restore, and updates
@@ -470,7 +470,7 @@ If the Storage Box becomes unavailable while the stack is running and you want t
 mount /mnt/storagebox        # path you chose during install
 
 # Restart only the media-facing services
-docker compose restart jellyfin audiobookshelf navidrome sonarr radarr lidarr qbittorrent
+docker restart jellyfin audiobookshelf navidrome sonarr radarr lidarr qbittorrent
 ```
 
 Or do a clean restart via `./scripts/start.sh`, which re-checks the mount automatically.
@@ -486,26 +486,26 @@ Or do a clean restart via `./scripts/start.sh`, which re-checks the mount automa
 **SSL certificates not provisioning**
 DNS records must resolve to the VPS before Traefik can complete the ACME HTTP challenge. Fix DNS, then:
 ```bash
-docker compose restart traefik
+docker restart traefik
 ```
 
 **Authentik not starting**
 It takes ~90 seconds on first boot while it runs database migrations. Check:
 ```bash
-docker compose logs -f authentik-server
+docker logs -f authentik-server
 ```
 
 **Service unreachable after login**
 The Authentik embedded outpost needs to be configured with your domain. Verify the blueprint was applied in Authentik → System → Blueprints. If it shows an error, check:
 ```bash
-docker compose logs authentik-worker
+docker logs authentik-worker
 ```
 
 **qBittorrent login loop**
 The Web UI has a security feature that rejects requests where the `Host` header doesn't match. Ensure the `qbit-headers` Traefik middleware is active and restart the container.
 
 **Nextcloud "untrusted domain" error**
-The `NEXTCLOUD_TRUSTED_DOMAINS` env var in `docker-compose.yml` must match your domain exactly. Update `.env` and run `docker compose up -d nextcloud`.
+The `NEXTCLOUD_TRUSTED_DOMAINS` env var in `compose.cloud.yml` must match your domain exactly. Update `.env` and run `./scripts/start.sh`.
 
 **Storage Box unavailable / media missing**
 If services start but show no media, the Storage Box likely failed to mount and the stack fell back to local storage. Check the output of `./scripts/start.sh` for the warning message. To recover:
@@ -521,7 +521,7 @@ mount /mnt/storagebox
 mount -v /mnt/storagebox
 
 # Restart the stack so containers pick up the storage box paths
-docker compose down && ./scripts/start.sh
+docker compose -f compose.core.yml -f compose.cloud.yml -f compose.media.yml -f compose.monitoring.yml -f compose.vpn.yml down && ./scripts/start.sh
 ```
 
 The credentials file is at `/root/.storagebox-credentials`. The fstab entry added during install uses `nofail`, so a missing Storage Box will never prevent the VPS from booting — the stack just falls back silently.

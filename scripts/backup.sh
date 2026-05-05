@@ -14,6 +14,8 @@ log() { echo "[backup] $*"; }
 warn() { echo "[backup] WARNING: $*" >&2; }
 has_docker() { command -v docker >/dev/null 2>&1; }
 
+COMPOSE_FILES=(-f compose.core.yml -f compose.cloud.yml -f compose.media.yml -f compose.monitoring.yml -f compose.vpn.yml)
+
 mkdir -p "${BACKUP_DIR}/db"
 
 log "Writing manifest..."
@@ -22,14 +24,14 @@ log "Writing manifest..."
   echo "repo_dir=${REPO_DIR}"
   if has_docker; then
     docker compose version 2>/dev/null | sed 's/^/compose_version=/'
-    docker compose images 2>/dev/null || true
+    docker compose "${COMPOSE_FILES[@]}" images 2>/dev/null || true
   else
     echo "compose_version=unavailable"
   fi
 } > "${BACKUP_DIR}/manifest.txt"
 
 log "Saving project files..."
-config_paths=(docker-compose.yml services.yml README.md ISSUES.md ROADMAP.md config scripts)
+config_paths=(compose.core.yml compose.cloud.yml compose.media.yml compose.monitoring.yml compose.vpn.yml services.yml README.md ISSUES.md ROADMAP.md config scripts)
 if [[ -f .env ]]; then
   config_paths=(.env "${config_paths[@]}")
 else
@@ -48,9 +50,9 @@ else
   warn "data directory does not exist; skipping data archive"
 fi
 
-if has_docker && docker compose ps postgres 2>/dev/null | grep -q 'postgres'; then
+if has_docker && docker compose "${COMPOSE_FILES[@]}" ps postgres 2>/dev/null | grep -q 'postgres'; then
   log "Dumping PostgreSQL databases..."
-  if ! docker compose exec -T postgres pg_dumpall -U postgres > "${BACKUP_DIR}/db/postgres.sql"; then
+  if ! docker compose "${COMPOSE_FILES[@]}" exec -T postgres pg_dumpall -U postgres > "${BACKUP_DIR}/db/postgres.sql"; then
     warn "PostgreSQL dump failed"
     rm -f "${BACKUP_DIR}/db/postgres.sql"
   fi
@@ -58,11 +60,11 @@ else
   warn "PostgreSQL container is not available; skipping pg_dumpall"
 fi
 
-if has_docker && docker compose ps booklore-db 2>/dev/null | grep -q 'booklore-db'; then
+if has_docker && docker compose "${COMPOSE_FILES[@]}" ps booklore-db 2>/dev/null | grep -q 'booklore-db'; then
   log "Dumping Booklore MariaDB database..."
-  if docker compose exec -T booklore-db sh -lc 'mariadb-dump -uroot -p"$MYSQL_ROOT_PASSWORD" --all-databases' > "${BACKUP_DIR}/db/booklore-mariadb.sql"; then
+  if docker compose "${COMPOSE_FILES[@]}" exec -T booklore-db sh -lc 'mariadb-dump -uroot -p"$MYSQL_ROOT_PASSWORD" --all-databases' > "${BACKUP_DIR}/db/booklore-mariadb.sql"; then
     :
-  elif docker compose exec -T booklore-db sh -lc 'mariadb-dump -u"$MYSQL_USER" -p"$MYSQL_PASSWORD" "$MYSQL_DATABASE"' > "${BACKUP_DIR}/db/booklore.sql"; then
+  elif docker compose "${COMPOSE_FILES[@]}" exec -T booklore-db sh -lc 'mariadb-dump -u"$MYSQL_USER" -p"$MYSQL_PASSWORD" "$MYSQL_DATABASE"' > "${BACKUP_DIR}/db/booklore.sql"; then
     warn "Booklore root dump failed; captured application database dump instead"
     rm -f "${BACKUP_DIR}/db/booklore-mariadb.sql"
   else

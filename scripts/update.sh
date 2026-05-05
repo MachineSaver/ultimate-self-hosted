@@ -66,11 +66,13 @@ fi
 mkdir -p "${BACKUP_ROOT}/update-manifests"
 manifest="${BACKUP_ROOT}/update-manifests/$(date -u +%Y%m%dT%H%M%SZ)-images.txt"
 
+COMPOSE_FILES=(-f compose.core.yml -f compose.cloud.yml -f compose.media.yml -f compose.monitoring.yml -f compose.vpn.yml)
+
 echo "[update] Recording current image state: ${manifest}"
-docker compose images > "${manifest}" 2>/dev/null || true
+docker compose "${COMPOSE_FILES[@]}" images > "${manifest}" 2>/dev/null || true
 
 echo "[update] Pulling configured image tags..."
-docker compose pull
+docker compose "${COMPOSE_FILES[@]}" pull
 
 echo "[update] Recreating changed services..."
 ./scripts/start.sh

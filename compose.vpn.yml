@@ -1,0 +1,89 @@
+# ================================================================
+# Network and VPN: Tailscale control plane and WireGuard VPN.
+# Requires compose.core.yml (proxy network).
+# ================================================================
+
+services:
+
+  # ──────────────────────────────────────────────────────────────
+  # HEADSCALE — Self-hosted Tailscale control server
+  # ──────────────────────────────────────────────────────────────
+  headscale:
+    image: headscale/headscale:0.28.0
+    container_name: headscale
+    restart: unless-stopped
+    command: serve
+    volumes:
+      - ./data/headscale:/var/lib/headscale
+      - ./config/headscale/config.yaml:/etc/headscale/config.yaml:ro
+    networks:
+      - proxy
+    labels:
+      - "traefik.enable=true"
+      # Standard HTTP/gRPC traffic from Tailscale clients
+      - "traefik.http.routers.headscale.rule=Host(`headscale.${DOMAIN}`)"
+      - "traefik.http.routers.headscale.entrypoints=websecure"
+      - "traefik.http.routers.headscale.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.headscale.service=headscale"
+      - "traefik.http.services.headscale.loadbalancer.server.port=8080"
+      - "traefik.http.routers.headscale.priority=1"
+      # gRPC needs h2c (cleartext HTTP/2) to Headscale internally
+      - "traefik.http.routers.headscale-grpc.rule=Host(`headscale.${DOMAIN}`) && Header(`Content-Type`, `application/grpc`)"
+      - "traefik.http.routers.headscale-grpc.entrypoints=websecure"
+      - "traefik.http.routers.headscale-grpc.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.headscale-grpc.service=headscale-grpc-svc"
+      - "traefik.http.routers.headscale-grpc.priority=10"
+      - "traefik.http.services.headscale-grpc-svc.loadbalancer.server.port=8080"
+      - "traefik.http.services.headscale-grpc-svc.loadbalancer.server.scheme=h2c"
+
+  headscale-ui:
+    image: ghcr.io/gurucomputing/headscale-ui:2026.03.17
+    container_name: headscale-ui
+    restart: unless-stopped
+    networks:
+      - proxy
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.headscale-ui.rule=Host(`headscale.${DOMAIN}`) && PathPrefix(`/web`)"
+      - "traefik.http.routers.headscale-ui.entrypoints=websecure"
+      - "traefik.http.routers.headscale-ui.tls.certresolver=letsencrypt"
+      - "traefik.http.services.headscale-ui.loadbalancer.server.port=80"
+      - "traefik.http.routers.headscale-ui.middlewares=authentik@file"
+      - "traefik.http.routers.headscale-ui.priority=5"
+
+  # ──────────────────────────────────────────────────────────────
+  # WIREGUARD EASY — Traditional WireGuard VPN + Web UI (forward auth)
+  # ──────────────────────────────────────────────────────────────
+  wireguard:
+    image: ghcr.io/wg-easy/wg-easy:15
+    container_name: wireguard
+    restart: unless-stopped
+    environment:
+      INIT_ENABLED: "true"
+      INIT_USERNAME: ${ADMIN_USER}
+      INIT_PASSWORD: ${ADMIN_PASSWORD}
+      INIT_HOST: ${DOMAIN}
+      INIT_PORT: "51820"
+      INIT_DNS: "1.1.1.1, 1.0.0.1"
+      INIT_ALLOWED_IPS: "0.0.0.0/0, ::/0"
+      INIT_IPV4_CIDR: "10.8.0.0/24"
+    volumes:
+      - ./data/wireguard:/etc/wireguard
+      - /lib/modules:/lib/modules:ro
+    cap_add:
+      - NET_ADMIN
+      - SYS_MODULE
+    sysctls:
+      - net.ipv4.conf.all.src_valid_mark=1
+      - net.ipv4.ip_forward=1
+    ports:
+      - "51820:51820/udp"
+    networks:
+      - proxy
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.wireguard-ui.rule=Host(`vpn.${DOMAIN}`)"
+      - "traefik.http.routers.wireguard-ui.entrypoints=websecure"
+      - "traefik.http.routers.wireguard-ui.tls.certresolver=letsencrypt"
+      - "traefik.http.services.wireguard-ui.loadbalancer.server.port=51821"
+      - "traefik.http.routers.wireguard-ui.middlewares=authentik@file"
