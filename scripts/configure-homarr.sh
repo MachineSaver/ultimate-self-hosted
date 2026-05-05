@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Completes Homarr's OIDC first-run admin group setup.
+# Completes Homarr's OIDC first-run admin group setup and seeds the Home board.
 # Called automatically by install.sh; safe to re-run.
 set -euo pipefail
 
@@ -86,6 +86,247 @@ if (!verified) {
 db.close();
 
 console.log(`Homarr admin group '${groupName}' is configured and onboarding is complete.`);
+NODE
+
+echo "Seeding Homarr Home board..."
+docker exec -i \
+  -e DOMAIN="${DOMAIN:-}" \
+  -e HOMARR_ADMIN_GROUP="${HOMARR_ADMIN_GROUP}" \
+  -e HOMARR_DB_PATH="${HOMARR_DB_PATH}" \
+  homarr node - <<'NODE'
+const crypto = require('crypto');
+const fs = require('fs');
+const Database = require('better-sqlite3');
+
+const domain    = process.env.DOMAIN || '';
+const groupName = process.env.HOMARR_ADMIN_GROUP || 'homarr-admins';
+const dbPath    = process.env.HOMARR_DB_PATH || '/appdata/db/db.sqlite';
+
+if (!fs.existsSync(dbPath)) throw new Error(`Homarr database not found at ${dbPath}`);
+
+if (!domain) {
+  console.warn('WARNING: DOMAIN not set — skipping Home board seed.');
+  process.exit(0);
+}
+
+const newId = () => crypto.randomBytes(12).toString('hex');
+const sj    = obj => JSON.stringify({ json: obj });
+const EMPTY = '{"json":{}}';
+const ICON  = 'https://cdn.jsdelivr.net/gh/walkxcode/dashboard-icons/png';
+
+const db = new Database(dbPath);
+
+// PRAGMA-based column detection: handles camelCase and snake_case schemas
+const tableInfo = {};
+const cols = t => {
+  if (!tableInfo[t]) {
+    tableInfo[t] = db.prepare(`PRAGMA table_info("${t}")`).all().map(c => c.name);
+  }
+  return tableInfo[t];
+};
+const pick = (table, ...candidates) => {
+  const c = cols(table);
+  for (const cand of candidates) if (c.includes(cand)) return cand;
+  throw new Error(`Table "${table}" missing all of [${candidates.join(', ')}]. Found: ${c.join(', ')}`);
+};
+const Q = c => `"${c}"`;
+
+// Verify required tables exist
+const allTables = db.prepare("SELECT name FROM sqlite_master WHERE type='table'").all().map(r => r.name);
+for (const t of ['board', 'section', 'item', 'app', 'layout', 'item_layout', 'section_layout']) {
+  if (!allTables.includes(t)) throw new Error(`Required table "${t}" not found in Homarr DB.`);
+}
+
+// Idempotency: skip if Home board already exists
+if (db.prepare("SELECT 1 FROM board WHERE name = 'Home'").get()) {
+  db.close();
+  console.log('Home board already exists — skipping seed.');
+  process.exit(0);
+}
+
+// Detect column names (camelCase or snake_case)
+const BC = {
+  isPublic:  pick('board', 'is_public',                   'isPublic'),
+  imgAttach: pick('board', 'background_image_attachment', 'backgroundImageAttachment'),
+  imgRepeat: pick('board', 'background_image_repeat',     'backgroundImageRepeat'),
+  imgSize:   pick('board', 'background_image_size',       'backgroundImageSize'),
+  primary:   pick('board', 'primary_color',               'primaryColor'),
+  secondary: pick('board', 'secondary_color',             'secondaryColor'),
+  radius:    pick('board', 'item_radius',                 'itemRadius'),
+  disStatus: pick('board', 'disable_status',              'disableStatus'),
+};
+const LC = {
+  boardId:     pick('layout', 'board_id',     'boardId'),
+  columnCount: pick('layout', 'column_count', 'columnCount'),
+};
+const SC = {
+  boardId: pick('section', 'board_id', 'boardId'),
+};
+const IC = {
+  boardId: pick('item', 'board_id',        'boardId'),
+  advOpts: pick('item', 'advanced_options', 'advancedOptions'),
+};
+const AC = {
+  iconUrl: pick('app', 'icon_url', 'iconUrl'),
+  pingUrl: pick('app', 'ping_url', 'pingUrl'),
+};
+const ILC = {
+  itemId:    pick('item_layout', 'item_id',    'itemId'),
+  sectionId: pick('item_layout', 'section_id', 'sectionId'),
+  layoutId:  pick('item_layout', 'layout_id',  'layoutId'),
+  x:         pick('item_layout', 'x_offset',   'xOffset'),
+  y:         pick('item_layout', 'y_offset',   'yOffset'),
+};
+const SLC = {
+  sectionId: pick('section_layout', 'section_id', 'sectionId'),
+  layoutId:  pick('section_layout', 'layout_id',  'layoutId'),
+  x:         pick('section_layout', 'x_offset',   'xOffset'),
+  y:         pick('section_layout', 'y_offset',   'yOffset'),
+};
+
+const hasBGP = allTables.includes('boardGroupPermission');
+let BGPC = null;
+if (hasBGP) {
+  BGPC = {
+    boardId: pick('boardGroupPermission', 'board_id', 'boardId'),
+    groupId: pick('boardGroupPermission', 'group_id', 'groupId'),
+  };
+}
+
+const groupCols = cols('group');
+const groupHomeCol = groupCols.includes('home_board_id') ? 'home_board_id'
+                   : groupCols.includes('homeBoardId')   ? 'homeBoardId'
+                   : null;
+
+// Board layout: 12 columns, items 2×2, sections grouped by category
+// Row 0–2: Media (full width)
+// Row 3–5: Automation & Downloads (full width)
+// Row 6–8: Cloud & Security (left half) | Network & VPN (right half)
+// Row 9–11: Monitoring (left half) | Identity (right half)
+const categories = [
+  {
+    name: 'Media', x: 0, y: 0, w: 12, h: 3,
+    apps: [
+      { name: 'Jellyfin',       icon: 'jellyfin',       href: `https://jellyfin.${domain}`   },
+      { name: 'Navidrome',      icon: 'navidrome',      href: `https://music.${domain}`       },
+      { name: 'Audiobookshelf', icon: 'audiobookshelf', href: `https://audiobooks.${domain}` },
+      { name: 'Booklore',       icon: 'booklore',       href: `https://books.${domain}`       },
+      { name: 'Jellyseerr',     icon: 'jellyseerr',     href: `https://requests.${domain}`   },
+    ],
+  },
+  {
+    name: 'Automation & Downloads', x: 0, y: 3, w: 12, h: 3,
+    apps: [
+      { name: 'Sonarr',      icon: 'sonarr',      href: `https://sonarr.${domain}`   },
+      { name: 'Radarr',      icon: 'radarr',      href: `https://radarr.${domain}`   },
+      { name: 'Lidarr',      icon: 'lidarr',      href: `https://lidarr.${domain}`   },
+      { name: 'Prowlarr',    icon: 'prowlarr',    href: `https://prowlarr.${domain}` },
+      { name: 'qBittorrent', icon: 'qbittorrent', href: `https://qbit.${domain}`     },
+    ],
+  },
+  {
+    name: 'Cloud & Security', x: 0, y: 6, w: 6, h: 3,
+    apps: [
+      { name: 'Nextcloud',   icon: 'nextcloud',   href: `https://cloud.${domain}` },
+      { name: 'Vaultwarden', icon: 'vaultwarden', href: `https://vault.${domain}` },
+    ],
+  },
+  {
+    name: 'Network & VPN', x: 6, y: 6, w: 6, h: 3,
+    apps: [
+      { name: 'Headscale',  icon: 'headscale',  href: `https://headscale.${domain}` },
+      { name: 'WireGuard',  icon: 'wireguard',  href: `https://vpn.${domain}`       },
+      { name: 'Traefik',    icon: 'traefik',    href: `https://traefik.${domain}`   },
+    ],
+  },
+  {
+    name: 'Monitoring', x: 0, y: 9, w: 6, h: 3,
+    apps: [
+      { name: 'Uptime Kuma', icon: 'uptime-kuma', href: `https://uptime.${domain}`  },
+      { name: 'Grafana',     icon: 'grafana',     href: `https://grafana.${domain}` },
+    ],
+  },
+  {
+    name: 'Identity', x: 6, y: 9, w: 6, h: 3,
+    apps: [
+      { name: 'Authentik', icon: 'authentik', href: `https://auth.${domain}` },
+    ],
+  },
+];
+
+db.transaction(() => {
+  const boardId = newId();
+
+  db.prepare(`
+    INSERT INTO board (id, name, ${Q(BC.isPublic)}, ${Q(BC.imgAttach)}, ${Q(BC.imgRepeat)},
+      ${Q(BC.imgSize)}, ${Q(BC.primary)}, ${Q(BC.secondary)}, opacity, ${Q(BC.radius)}, ${Q(BC.disStatus)})
+    VALUES (?, 'Home', 1, 'fixed', 'no-repeat', 'cover', '#fa5252', '#fd7e14', 100, 'lg', 0)
+  `).run(boardId);
+
+  const layoutId = newId();
+  db.prepare(`
+    INSERT INTO layout (id, name, ${Q(LC.boardId)}, ${Q(LC.columnCount)}, breakpoint)
+    VALUES (?, 'default', ?, 12, 0)
+  `).run(layoutId, boardId);
+
+  for (const cat of categories) {
+    const sectionId = newId();
+    db.prepare(`
+      INSERT INTO section (id, ${Q(SC.boardId)}, kind, name, options)
+      VALUES (?, ?, 'category', ?, ?)
+    `).run(sectionId, boardId, cat.name, EMPTY);
+
+    db.prepare(`
+      INSERT INTO section_layout (${Q(SLC.sectionId)}, ${Q(SLC.layoutId)}, ${Q(SLC.x)}, ${Q(SLC.y)}, width, height)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `).run(sectionId, layoutId, cat.x, cat.y, cat.w, cat.h);
+
+    cat.apps.forEach((app, idx) => {
+      const appId = newId();
+      db.prepare(`
+        INSERT INTO app (id, name, ${Q(AC.iconUrl)}, href, ${Q(AC.pingUrl)})
+        VALUES (?, ?, ?, ?, ?)
+      `).run(appId, app.name, `${ICON}/${app.icon}.png`, app.href, app.href);
+
+      const itemId = newId();
+      db.prepare(`
+        INSERT INTO item (id, ${Q(IC.boardId)}, kind, options, ${Q(IC.advOpts)})
+        VALUES (?, ?, 'app', ?, ?)
+      `).run(itemId, boardId, sj({ appId }), EMPTY);
+
+      db.prepare(`
+        INSERT INTO item_layout (${Q(ILC.itemId)}, ${Q(ILC.sectionId)}, ${Q(ILC.layoutId)},
+          ${Q(ILC.x)}, ${Q(ILC.y)}, width, height)
+        VALUES (?, ?, ?, ?, ?, 2, 2)
+      `).run(itemId, sectionId, layoutId, idx * 2, 0);
+    });
+  }
+
+  // Set board as home for admin group and grant full access
+  const group = db.prepare(`SELECT id FROM "group" WHERE lower(trim(name)) = lower(trim(?))`).get(groupName);
+  if (!group) {
+    console.warn(`WARNING: group "${groupName}" not found — home board not assigned.`);
+    return;
+  }
+
+  if (groupHomeCol) {
+    db.prepare(`UPDATE "group" SET ${Q(groupHomeCol)} = ? WHERE id = ?`).run(boardId, group.id);
+  }
+
+  if (hasBGP && BGPC) {
+    const already = db.prepare(
+      `SELECT 1 FROM "boardGroupPermission" WHERE ${Q(BGPC.boardId)} = ? AND ${Q(BGPC.groupId)} = ?`
+    ).get(boardId, group.id);
+    if (!already) {
+      db.prepare(
+        `INSERT INTO "boardGroupPermission" (${Q(BGPC.boardId)}, ${Q(BGPC.groupId)}, permission) VALUES (?, ?, 'full')`
+      ).run(boardId, group.id);
+    }
+  }
+})();
+
+db.close();
+console.log('Home board seeded with all services.');
 NODE
 
 docker restart homarr >/dev/null

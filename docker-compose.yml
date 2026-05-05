@@ -133,7 +133,7 @@ services:
       - "traefik.http.services.authentik.loadbalancer.server.port=9000"
       # Outpost endpoint — must be reachable on all protected subdomains for
       # the forward-auth cookie flow to redirect correctly
-      - "traefik.http.routers.authentik-outpost.rule=HostRegexp(`{sub:[a-z0-9-]+}.${DOMAIN}`) && PathPrefix(`/outpost.goauthentik.io/`)"
+      - "traefik.http.routers.authentik-outpost.rule=HostRegexp(`[a-z0-9-]+\\.${DOMAIN}`) && PathPrefix(`/outpost.goauthentik.io/`)"
       - "traefik.http.routers.authentik-outpost.entrypoints=websecure"
       - "traefik.http.routers.authentik-outpost.tls.certresolver=letsencrypt"
       - "traefik.http.routers.authentik-outpost.service=authentik-outpost-svc"

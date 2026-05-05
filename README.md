@@ -353,7 +353,7 @@ The installer automatically configures most services at the end of the install r
 | Authentik OIDC clients | Homarr, Jellyfin plugin, Nextcloud, Audiobookshelf, Grafana, and Vaultwarden providers/applications created in Authentik |
 | Nextcloud OIDC | `user_oidc` app installed and wired to Authentik |
 | Audiobookshelf OIDC | Root user created; OpenID Connect enabled |
-| Homarr first run | External admin group `homarr-admins` created in Homarr; onboarding completed |
+| Homarr first run | External admin group `homarr-admins` created; onboarding completed; Home board seeded with all stack services grouped by category |
 | Jellyfin first run | Admin user created; default media libraries added when paths exist |
 | Jellyseerr first run | Connected to Jellyfin; Jellyfin libraries synced and enabled |
 | Uptime Kuma admin account | Created with your install credentials |
@@ -386,12 +386,6 @@ Jellyseerr uses `JELLYFIN_ADMIN_USER` / `JELLYFIN_ADMIN_PASSWORD` from `.env` to
 | Uptime Kuma | Local admin account is configured because Uptime Kuma has no native OIDC path here |
 | qBittorrent | Local WebUI credentials are configured, with Traefik forward auth as the external gate |
 | Vaultwarden | Admin panel uses `AUTHENTIK_BOOTSTRAP_TOKEN` from `.env` |
-
-**Still requires manual setup:**
-
-| Step | Service | URL | What to do |
-|---|---|---|---|
-| 1 | Homarr | `home.domain` | Create your first dashboard/layout |
 
 **Connect Tailscale/Headscale devices:**
 

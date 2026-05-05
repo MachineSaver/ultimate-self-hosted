@@ -136,7 +136,7 @@ Navigating to `cloud.zenlabs.us` showed: _"Configuration was not initialized cor
 
 ## ISSUE-012 - Homarr dashboard has no default service bookmarks
 
-**Status:** Open
+**Status:** Fixed
 **Severity:** Low
 **Area:** Homarr / Post-install configuration
 
@@ -144,7 +144,7 @@ After OIDC login, the Homarr dashboard is empty. The `configure-homarr.sh` scrip
 
 **Impact:** New installs require the user to manually add all service links to the Homarr dashboard before it is useful as a home page.
 
-**Suggested fix:** Add a default board configuration (JSON import or Homarr API call) to `configure-homarr.sh` that seeds bookmarks for all services defined in `services.yml`. Homarr supports importing board configurations via its settings UI or API.
+**Fix:** Extended `configure-homarr.sh` to seed a "Home" board with all public-facing stack services after admin group setup. The board contains six category sections (Media, Automation & Downloads, Cloud & Security, Network & VPN, Monitoring, Identity) covering all 17 services. Each app tile links to the correct subdomain URL and includes a status ping. The `homarr-admins` group's `home_board_id` is set to this board so every OIDC user lands on it by default. Column detection uses SQLite PRAGMA so the seed handles both camelCase and snake_case column naming across Homarr versions. The script is fully idempotent â€” re-runs skip seeding if the board already exists.
 
 ## ISSUE-013 - Audiobookshelf OIDC callback URL is wrong
 
@@ -174,12 +174,16 @@ Navigating to `books.zenlabs.us` shows the first-run setup wizard at `/setup` â€
 
 ## ISSUE-015 - Headscale Authentik outpost callback is stuck
 
-**Status:** Open
+**Status:** Fixed
 **Severity:** High
 **Area:** Headscale / Authentik forward_auth
 
-The Authentik outpost for `headscale.zenlabs.us` processes the OIDC authorization code at `/outpost.goauthentik.io/callback` but never issues the final redirect back to `/web`. The browser is stuck at the callback URL indefinitely with an empty response body.
+The Authentik outpost for `headscale.zenlabs.us` processed the OIDC authorization code at `/outpost.goauthentik.io/callback` but never issued the final redirect back to `/web`. The browser was stuck at the callback URL indefinitely with an empty response body.
 
-**Impact:** The Headscale admin UI at `headscale.zenlabs.us/web` is inaccessible via browser. The Headscale gRPC/HTTP API may still be reachable, but the web UI requires completing the OIDC flow.
+**Root cause:** The `authentik-outpost` Traefik router used the v2 `HostRegexp` capture-group syntax (`{sub:[a-z0-9-]+}`) on Traefik v3. Traefik v3 removed that syntax and treats the rule as an invalid regex, silently dropping the router. Callbacks to `headscale.zenlabs.us/outpost.goauthentik.io/callback` fell through to the priority-1 headscale catch-all router instead of reaching `authentik-server:9000`, producing an empty response.
 
-**Suggested fix:** Check the Authentik outpost logs (`docker compose logs authentik-proxy`) for errors during callback processing. Verify the outpost's `client_id` and `client_secret` match the Authentik application config. Ensure the outpost container can reach `auth.zenlabs.us` over the internal Docker network.
+**Fix:** Updated the `authentik-outpost` router rule in `docker-compose.yml` to Traefik v3 Go regex syntax:
+```
+HostRegexp(`[a-z0-9-]+\.${DOMAIN}`) && PathPrefix(`/outpost.goauthentik.io/`)
+```
+This correctly routes all subdomain outpost callbacks to `authentik-server:9000` on Traefik v3.
