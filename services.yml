@@ -83,6 +83,7 @@ services:
     internal_port: 8989
     data_dirs:
       - ./data/sonarr
+    post_install_script: scripts/configure-sonarr.sh
 
   - name: radarr
     category: automation
@@ -91,6 +92,7 @@ services:
     internal_port: 7878
     data_dirs:
       - ./data/radarr
+    post_install_script: scripts/configure-radarr.sh
 
   - name: lidarr
     category: automation
@@ -99,6 +101,7 @@ services:
     internal_port: 8686
     data_dirs:
       - ./data/lidarr
+    post_install_script: scripts/configure-lidarr.sh
 
   - name: prowlarr
     category: automation
@@ -107,6 +110,7 @@ services:
     internal_port: 9696
     data_dirs:
       - ./data/prowlarr
+    post_install_script: scripts/configure-prowlarr.sh
 
   - name: qbittorrent
     category: downloads

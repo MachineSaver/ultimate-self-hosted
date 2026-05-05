@@ -520,10 +520,14 @@ configure_services() {
   run_config_script "Authentik Homarr OIDC"   scripts/configure-authentik-homarr-oidc.sh
   run_config_script "Homarr OIDC first run"   scripts/configure-homarr.sh
   run_config_script "Booklore first run"       scripts/configure-booklore.sh
+  run_config_script "qBittorrent credentials" scripts/configure-qbittorrent.sh
+  run_config_script "Sonarr setup"            scripts/configure-sonarr.sh
+  run_config_script "Radarr setup"            scripts/configure-radarr.sh
+  run_config_script "Lidarr setup"            scripts/configure-lidarr.sh
+  run_config_script "Prowlarr setup"          scripts/configure-prowlarr.sh
   run_config_script "Jellyfin first run"      scripts/configure-jellyfin.sh
   run_config_script "Jellyseerr first run"    scripts/configure-jellyseerr.sh
   run_config_script "Uptime Kuma admin"       scripts/configure-uptime-kuma.sh
-  run_config_script "qBittorrent credentials" scripts/configure-qbittorrent.sh
 
   info "Headscale user + pre-auth key..."
   bash scripts/configure-headscale.sh || {

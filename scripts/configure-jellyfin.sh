@@ -17,6 +17,7 @@ JELLYFIN_MOVIES_DIR="${JELLYFIN_MOVIES_DIR:-/media/movies}"
 JELLYFIN_TV_DIR="${JELLYFIN_TV_DIR:-/media/tv}"
 JELLYFIN_MUSIC_DIR="${JELLYFIN_MUSIC_DIR:-/media/music}"
 JELLYFIN_BOOKS_DIR="${JELLYFIN_BOOKS_DIR:-/media/books}"
+JELLYFIN_AUDIOBOOKS_DIR="${JELLYFIN_AUDIOBOOKS_DIR:-/media/audiobooks}"
 
 BASE_URL="http://localhost:8096"
 AUTH_HEADER='MediaBrowser Client="ultimate-self-hosted", Device="installer", DeviceId="ultimate-self-hosted-installer", Version="1.0"'
@@ -179,16 +180,18 @@ wait_for_jellyfin
 complete_startup_wizard
 authenticate
 
-create_library "${JELLYFIN_TOKEN}" "Movies" "movies" "${JELLYFIN_MOVIES_DIR}"
-create_library "${JELLYFIN_TOKEN}" "TV Shows" "tvshows" "${JELLYFIN_TV_DIR}"
-create_library "${JELLYFIN_TOKEN}" "Music" "music" "${JELLYFIN_MUSIC_DIR}"
-create_library "${JELLYFIN_TOKEN}" "Books" "books" "${JELLYFIN_BOOKS_DIR}"
+create_library "${JELLYFIN_TOKEN}" "Movies"     "movies"     "${JELLYFIN_MOVIES_DIR}"
+create_library "${JELLYFIN_TOKEN}" "TV Shows"   "tvshows"   "${JELLYFIN_TV_DIR}"
+create_library "${JELLYFIN_TOKEN}" "Music"      "music"      "${JELLYFIN_MUSIC_DIR}"
+create_library "${JELLYFIN_TOKEN}" "Audiobooks" "audiobooks" "${JELLYFIN_AUDIOBOOKS_DIR}"
+create_library "${JELLYFIN_TOKEN}" "Books"      "books"      "${JELLYFIN_BOOKS_DIR}"
 
 refresh_library "${JELLYFIN_TOKEN}"
 
-path_exists "${JELLYFIN_MOVIES_DIR}" && verify_library "${JELLYFIN_TOKEN}" "Movies"
-path_exists "${JELLYFIN_TV_DIR}" && verify_library "${JELLYFIN_TOKEN}" "TV Shows"
-path_exists "${JELLYFIN_MUSIC_DIR}" && verify_library "${JELLYFIN_TOKEN}" "Music"
-path_exists "${JELLYFIN_BOOKS_DIR}" && verify_library "${JELLYFIN_TOKEN}" "Books"
+path_exists "${JELLYFIN_MOVIES_DIR}"     && verify_library "${JELLYFIN_TOKEN}" "Movies"
+path_exists "${JELLYFIN_TV_DIR}"         && verify_library "${JELLYFIN_TOKEN}" "TV Shows"
+path_exists "${JELLYFIN_MUSIC_DIR}"      && verify_library "${JELLYFIN_TOKEN}" "Music"
+path_exists "${JELLYFIN_AUDIOBOOKS_DIR}" && verify_library "${JELLYFIN_TOKEN}" "Audiobooks"
+path_exists "${JELLYFIN_BOOKS_DIR}"      && verify_library "${JELLYFIN_TOKEN}" "Books"
 
 echo "Done! Jellyfin admin and default libraries are configured."
