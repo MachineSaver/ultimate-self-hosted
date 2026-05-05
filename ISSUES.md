@@ -187,3 +187,63 @@ The Authentik outpost for `headscale.zenlabs.us` processed the OIDC authorizatio
 HostRegexp(`[a-z0-9-]+\.${DOMAIN}`) && PathPrefix(`/outpost.goauthentik.io/`)
 ```
 This correctly routes all subdomain outpost callbacks to `authentik-server:9000` on Traefik v3.
+
+## ISSUE-016 - Sonarr, Radarr, and Lidarr had no post-install configuration
+
+**Status:** Fixed
+**Severity:** High
+**Area:** Download automation / Post-install configuration
+
+Sonarr, Radarr, and Lidarr started successfully but had no download client and no root media folder configured. The services were unusable for automated media acquisition — any request from Jellyseerr would fail because neither qBittorrent nor a target directory was set.
+
+**Root cause:** No `configure-sonarr.sh`, `configure-radarr.sh`, or `configure-lidarr.sh` scripts existed. The arr apps were not listed in `install.sh`'s `configure_services()` function and had no `post_install_script` entry in `services.yml`.
+
+**Fix:** Created `scripts/configure-sonarr.sh`, `scripts/configure-radarr.sh`, and `scripts/configure-lidarr.sh`. Each script waits for service readiness, reads the API key from the container's `config.xml`, idempotently adds qBittorrent as a download client, and adds the appropriate root media folder (`/tv`, `/movies`, `/music`). Lidarr's API requires `name`, `defaultQualityProfileId`, and `defaultMetadataProfileId` in the root folder payload (Lidarr 3.x difference). All three scripts are wired into `install.sh` and `services.yml`.
+
+## ISSUE-017 - Prowlarr was not connected to Sonarr, Radarr, or Lidarr
+
+**Status:** Fixed
+**Severity:** High
+**Area:** Download automation / Prowlarr
+
+Prowlarr started with no application connections and no indexers. Sonarr, Radarr, and Lidarr could not receive indexer sync from Prowlarr, making automated search non-functional even after download clients were configured.
+
+**Root cause:** No `configure-prowlarr.sh` script existed. Prowlarr's app sync requires posting to `/api/v1/applications` after all arr API keys are available, which depends on the arr apps having already initialized — a sequencing constraint that no automation honored.
+
+**Fix:** Created `scripts/configure-prowlarr.sh`. It reads API keys from Sonarr, Radarr, and Lidarr config files, waits for Prowlarr readiness, then runs a Node.js script (via the Jellyseerr container) to idempotently register all three apps and seed the YTS public movie indexer. TV indexers (EZTV, The Pirate Bay, 1337x, Torrent Galaxy) are attempted in order but handled non-fatally because Hetzner IPs are blocked by Cloudflare on most major public trackers. The script verifies all three app registrations before exiting. Wired into `install.sh` after the arr configure scripts and added to `services.yml`.
+
+## ISSUE-018 - Jellyseerr was not connected to Radarr or Sonarr
+
+**Status:** Fixed
+**Severity:** High
+**Area:** Jellyseerr / Media request pipeline
+
+Jellyseerr was connected to Jellyfin but had no Radarr or Sonarr connection. Media requests would complete the Jellyseerr request flow but never reach any arr app for download — the full request → download → import → Jellyfin pipeline was broken.
+
+**Root cause:** `configure-jellyseerr.sh` only handled the Jellyfin connection. No code existed to read Radarr/Sonarr API keys, fetch their quality profiles and root folders, and POST them to Jellyseerr's `/api/v1/settings/radarr` and `/api/v1/settings/sonarr` endpoints.
+
+**Fix:** Extended `configure-jellyseerr.sh` to read Sonarr and Radarr API keys from their config files, then use Node.js in the Jellyseerr container to fetch available quality profiles and root folders from each app's internal API and register them in Jellyseerr. Both connections are guarded (skipped with a warning if the API key is unavailable) and verified after registration. The configure script must run after Sonarr and Radarr are configured, which the updated `install.sh` ordering enforces.
+
+## ISSUE-019 - Jellyseerr configure script failed on re-run when already initialized
+
+**Status:** Fixed
+**Severity:** Medium
+**Area:** Jellyseerr / Post-install configuration
+
+Re-running `configure-jellyseerr.sh` against an already-initialized Jellyseerr instance returned an error from `/api/v1/auth/jellyfin` complaining that the Jellyfin hostname was already configured and could not be changed via that endpoint.
+
+**Root cause:** The script always sent a full setup payload including `hostname`, `port`, and `serverType` to `/api/v1/auth/jellyfin`. Jellyseerr only accepts that payload on first initialization; subsequent calls must send only `username` and `password`.
+
+**Fix:** Added an `alreadyInitialized` check before the auth POST. When Jellyseerr is already set up, only `username` and `password` are sent; the hostname/port fields are omitted. This makes the script fully idempotent across fresh installs and re-runs.
+
+## ISSUE-020 - Jellyfin Audiobooks library was missing
+
+**Status:** Fixed
+**Severity:** Low
+**Area:** Jellyfin / Media libraries
+
+The Jellyfin `configure-jellyfin.sh` script created Movies, TV Shows, Music, and Books libraries but did not create an Audiobooks library. The `JELLYFIN_AUDIOBOOKS_DIR` variable and the `create_library` call for audiobooks were absent.
+
+**Root cause:** The Audiobooks library was overlooked when the configure script was originally written. Note: Jellyfin 10.10 does not have a native `audiobooks` collection type — the library is stored as a generic media folder. Audiobookshelf at `audiobooks.<domain>` remains the primary audiobook service and handles OPDS, progress tracking, and playback properly.
+
+**Fix:** Added `JELLYFIN_AUDIOBOOKS_DIR` variable, the `create_library` call for the Audiobooks library using the `audiobooks` collection type, and the corresponding `verify_library` check to `configure-jellyfin.sh`.

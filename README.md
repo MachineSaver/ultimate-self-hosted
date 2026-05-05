@@ -354,11 +354,17 @@ The installer automatically configures most services at the end of the install r
 | Nextcloud OIDC | `user_oidc` app installed and wired to Authentik |
 | Audiobookshelf OIDC | Root user created; OpenID Connect enabled |
 | Homarr first run | External admin group `homarr-admins` created; onboarding completed; Home board seeded with all stack services grouped by category |
-| Jellyfin first run | Admin user created; default media libraries added when paths exist |
-| Jellyseerr first run | Connected to Jellyfin; Jellyfin libraries synced and enabled |
+| Jellyfin first run | Admin user created; Movies, TV Shows, Music, Audiobooks, and Books libraries added when paths exist |
+| Jellyseerr first run | Connected to Jellyfin; libraries synced; Radarr and Sonarr connected with quality profiles and root folders |
+| Sonarr setup | qBittorrent download client configured; `/tv` root folder added |
+| Radarr setup | qBittorrent download client configured; `/movies` root folder added |
+| Lidarr setup | qBittorrent download client configured; `/music` root folder added |
+| Prowlarr setup | Sonarr, Radarr, and Lidarr registered as sync targets; YTS public movie indexer added |
 | Uptime Kuma admin account | Created with your install credentials |
 | qBittorrent credentials | Username + password set to your install credentials |
 | Headscale user + pre-auth key | User created; key printed at end of install |
+
+> **TV indexers:** Public TV torrent trackers (EZTV, The Pirate Bay, 1337x) are blocked by Cloudflare on Hetzner IP ranges. Only YTS (movies) is added automatically. To get TV indexer results, add a private tracker or a Jackett/Prowlarr-compatible indexer manually in Prowlarr after install.
 
 If any step fails, the installer stops before printing the setup summary. Fix the reported service and re-run the corresponding script:
 
@@ -369,6 +375,10 @@ If any step fails, the installer stops before printing the setup summary. Fix th
 ./scripts/configure-homarr.sh
 ./scripts/configure-jellyfin.sh
 ./scripts/configure-jellyseerr.sh
+./scripts/configure-sonarr.sh
+./scripts/configure-radarr.sh
+./scripts/configure-lidarr.sh
+./scripts/configure-prowlarr.sh
 ./scripts/configure-uptime-kuma.sh
 ./scripts/configure-qbittorrent.sh
 ./scripts/configure-headscale.sh   # also use this to generate new keys

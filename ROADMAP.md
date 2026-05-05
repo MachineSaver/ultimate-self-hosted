@@ -88,7 +88,9 @@ Make every post-install configuration script safe to re-run after partial failur
 
 This reduces manual recovery work when first boot races, slow migrations, or service-specific setup steps fail.
 
-Implemented for the current post-install scripts. Scripts wait for service readiness, update existing state where supported, and verify final state. The installer now fails the install if post-install configuration cannot prove completion.
+Implemented for all post-install scripts. Scripts wait for service readiness, update existing state where supported, and verify final state. The installer now fails the install if post-install configuration cannot prove completion.
+
+The full media pipeline is now wired end-to-end from startup: `configure-sonarr.sh`, `configure-radarr.sh`, and `configure-lidarr.sh` add qBittorrent as download client and set the root media folder; `configure-prowlarr.sh` registers the arr apps as sync targets and seeds the YTS movie indexer; `configure-jellyseerr.sh` connects Radarr and Sonarr with the correct quality profiles and root folders in addition to the Jellyfin connection.
 
 ## OIDC-First Authentication
 
@@ -109,12 +111,12 @@ Implementation should prefer service APIs first, stable config edits second, and
 
 Current automation configures native OIDC for Homarr, Nextcloud, Audiobookshelf, Grafana, and Vaultwarden, plus an Authentik OIDC client for Jellyfin's optional SSO plugin. The README documents remaining local break-glass accounts explicitly; Jellyfin plugin installation remains optional because it still requires a plugin install step inside Jellyfin.
 
-Known OIDC gaps discovered during live browser testing:
+Known OIDC gaps discovered during live browser testing — all resolved:
 
-- **Audiobookshelf** (ISSUE-013): `configure-audiobookshelf.sh` registers the wrong callback URL — it omits the `/audiobookshelf` base path. The redirect URI must be `https://audiobooks.<domain>/audiobookshelf/auth/openid/callback`. Fix the script and update the Authentik provider registration.
-- **Nextcloud** (ISSUE-011): The Nextcloud container's first-run setup did not produce a valid `config.php`. OIDC configuration cannot be tested until the service initialises correctly.
-- **Headscale** (ISSUE-015): The Authentik outpost for `headscale.<domain>` completes the OIDC code exchange but never issues the final redirect back to `/web`. The outpost container likely cannot reach `auth.<domain>` over the internal network, or the provider registration is mismatched.
-- **Booklore** (ISSUE-014): No `configure-booklore.sh` script exists. The service lands on its first-run `/setup` wizard after install. A configure script should create the initial admin account via the Booklore API so the service is usable immediately after install.
+- **Audiobookshelf** (ISSUE-013): Fixed. Authentik blueprint now registers both the subfolder (`/audiobookshelf/auth/openid/callback`) and root callback paths. `configure-audiobookshelf-oidc.sh` clears the subfolder override and verifies all endpoints.
+- **Nextcloud** (ISSUE-011): Fixed. `install.sh` now runs `chown -R 33:33 data/nextcloud` before first boot so `config.php` is always readable by the container's `www-data` process.
+- **Headscale** (ISSUE-015): Fixed. The Traefik `authentik-outpost` router rule was updated to Traefik v3 Go regex syntax, which correctly routes all subdomain outpost callbacks to `authentik-server:9000`.
+- **Booklore** (ISSUE-014): Fixed. `scripts/configure-booklore.sh` creates the initial admin account via the Booklore setup API and is wired into `install.sh`.
 
 ## Version And Update Policy
 
