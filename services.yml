@@ -25,7 +25,7 @@ services:
   - name: jellyfin
     category: media
     subdomain: jellyfin
-    auth_method: forward_auth_optional_oidc
+    auth_method: native_oidc
     internal_port: 8096
     data_dirs:
       - ./data/jellyfin/config
@@ -33,7 +33,7 @@ services:
     oidc_client_env:
       id: JELLYFIN_OIDC_CLIENT_ID
       secret: JELLYFIN_OIDC_CLIENT_SECRET
-    post_install_script: scripts/configure-jellyfin.sh
+    post_install_script: scripts/configure-jellyfin-oidc.sh
 
   - name: jellyseerr
     category: media
@@ -177,6 +177,13 @@ services:
     internal_port: 9090
     data_dirs:
       - ./data/prometheus
+
+  - name: glances
+    category: monitoring
+    subdomain: null
+    auth_method: internal_only
+    internal_port: 61208
+    data_dirs: []
 
   - name: vaultwarden
     category: security

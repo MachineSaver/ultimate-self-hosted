@@ -1,31 +1,29 @@
 const { test, expect } = require('@playwright/test');
-const { url, goAndAuth, ADMIN_USER, ADMIN_PASSWORD } = require('./helpers');
+const { url, goAndAuth } = require('./helpers');
 
-// Jellyfin is behind Traefik forward_auth — we rely on the stored Authentik session
-// to pass through, then log in to Jellyfin's own form with the local admin account.
+// Jellyfin is not behind Traefik forward_auth. Public API requests should reach
+// Jellyfin directly, while browser SSO starts through the Jellyfin SSO plugin.
 test.describe('Jellyfin', () => {
-  test('admin can log in and reach the home dashboard', async ({ page }) => {
-    await goAndAuth(page, url('jellyfin'));
+  test('public server info is not intercepted by forward auth', async ({ request }) => {
+    const response = await request.get(`${url('jellyfin')}/System/Info/Public`, {
+      maxRedirects: 0,
+    });
+    expect(response.status()).toBe(200);
 
-    // Jellyfin presents its own login form after forward_auth passes
-    await page.locator('#txtManualName').waitFor({ state: 'visible', timeout: 15_000 });
-    await page.locator('#txtManualName').fill(ADMIN_USER);
-    await page.locator('#txtManualPassword').fill(ADMIN_PASSWORD);
-    await page.locator('button:has-text("Sign In")').click();
+    const body = await response.json();
+    expect(body).toHaveProperty('StartupWizardCompleted', true);
+    expect(body).toHaveProperty('ServerName');
+  });
 
-    // Home dashboard should appear
+  test('admin can log in through Authentik OIDC and reach the home dashboard', async ({ page }) => {
+    await goAndAuth(page, `${url('jellyfin')}/sso/OID/start/authentik`);
     await page.waitForURL('**/home.html**', { timeout: 20_000 });
     await expect(page.locator('.homeSectionsContainer, #indexPage').first())
       .toBeVisible({ timeout: 15_000 });
   });
 
   test('media library is accessible and a video can be played', async ({ page }) => {
-    await goAndAuth(page, url('jellyfin'));
-
-    await page.locator('#txtManualName').waitFor({ state: 'visible', timeout: 15_000 });
-    await page.locator('#txtManualName').fill(ADMIN_USER);
-    await page.locator('#txtManualPassword').fill(ADMIN_PASSWORD);
-    await page.locator('button:has-text("Sign In")').click();
+    await goAndAuth(page, `${url('jellyfin')}/sso/OID/start/authentik`);
     await page.waitForURL('**/home.html**', { timeout: 20_000 });
 
     // Look for a media card on the home page

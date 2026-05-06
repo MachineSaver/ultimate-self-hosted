@@ -528,6 +528,7 @@ configure_services() {
   run_config_script "Lidarr setup"            scripts/configure-lidarr.sh
   run_config_script "Prowlarr setup"          scripts/configure-prowlarr.sh
   run_config_script "Jellyfin first run"      scripts/configure-jellyfin.sh
+  run_config_script "Jellyfin OIDC"           scripts/configure-jellyfin-oidc.sh
   run_config_script "Jellyseerr first run"    scripts/configure-jellyseerr.sh
   run_config_script "Uptime Kuma admin"       scripts/configure-uptime-kuma.sh
 
@@ -588,7 +589,7 @@ DONE
   echo -e "    • Nextcloud OIDC"
   echo -e "    • Audiobookshelf OIDC"
   echo -e "    • Homarr OIDC first run"
-  echo -e "    • Jellyfin first run + default libraries"
+  echo -e "    • Jellyfin first run + OIDC + default libraries"
   echo -e "    • Jellyseerr first run + Jellyfin connection"
   echo -e "    • Uptime Kuma admin account"
   echo -e "    • qBittorrent credentials (username: ${ADMIN_USER})"
@@ -610,7 +611,6 @@ DONE
   echo -e "      Generate a new key at any time: ${CYAN}./scripts/configure-headscale.sh${NC}"
   echo ""
   echo -e "  ${BOLD}Optional:${NC}"
-  echo -e "  [ ] Jellyfin OIDC plugin — Dashboard → Plugins → Catalog"
   echo -e "  [ ] Vaultwarden admin panel — https://vault.${DOMAIN}/admin"
   echo -e "      Password: AUTHENTIK_BOOTSTRAP_TOKEN from .env"
   echo ""
@@ -661,7 +661,7 @@ prompt_storage_box() {
     # Local dirs are the safe fallback; storage box paths become the active dirs
     MEDIA_DIR_LOCAL="./data/media"
     DOWNLOADS_DIR_LOCAL="./data/downloads"
-    MEDIA_DIR="${STORAGEBOX_MOUNT}/media"
+    MEDIA_DIR="${STORAGEBOX_MOUNT}"
     DOWNLOADS_DIR="${STORAGEBOX_MOUNT}/downloads"
 
     success "Storage Box configured: //${STORAGEBOX_HOST}/${STORAGEBOX_SHARE} → ${STORAGEBOX_MOUNT}"
@@ -712,12 +712,12 @@ setup_storage_box_mount() {
   fi
 
   mkdir -p \
-    "${STORAGEBOX_MOUNT}/media/movies" \
-    "${STORAGEBOX_MOUNT}/media/tv" \
-    "${STORAGEBOX_MOUNT}/media/music" \
-    "${STORAGEBOX_MOUNT}/media/books" \
-    "${STORAGEBOX_MOUNT}/media/audiobooks" \
-    "${STORAGEBOX_MOUNT}/media/podcasts" \
+    "${STORAGEBOX_MOUNT}/movies" \
+    "${STORAGEBOX_MOUNT}/tv" \
+    "${STORAGEBOX_MOUNT}/music" \
+    "${STORAGEBOX_MOUNT}/books" \
+    "${STORAGEBOX_MOUNT}/audiobooks" \
+    "${STORAGEBOX_MOUNT}/podcasts" \
     "${STORAGEBOX_MOUNT}/downloads/complete" \
     "${STORAGEBOX_MOUNT}/downloads/incomplete"
 
@@ -764,7 +764,7 @@ verify_mount_health() {
   fi
 
   if [[ "$mount_ok" == "true" ]]; then
-    export MEDIA_DIR="${STORAGEBOX_MOUNT}/media"
+    export MEDIA_DIR="${STORAGEBOX_MOUNT}"
     export DOWNLOADS_DIR="${STORAGEBOX_MOUNT}/downloads"
     success "Storage Box healthy — using ${STORAGEBOX_MOUNT} for media"
   else

@@ -76,6 +76,19 @@ services:
     networks:
       - internal
 
+  glances:
+    image: nicolargo/glances:4.5.0.5
+    container_name: glances
+    restart: unless-stopped
+    pid: host
+    environment:
+      GLANCES_OPT: "-w"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /:/rootfs:ro
+    networks:
+      - internal
+
   # ──────────────────────────────────────────────────────────────
   # GRAFANA — Metrics dashboards (native OIDC)
   # ──────────────────────────────────────────────────────────────

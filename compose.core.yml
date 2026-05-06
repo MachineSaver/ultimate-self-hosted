@@ -191,6 +191,7 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock:ro
     networks:
       - proxy
+      - internal
     labels:
       - "traefik.enable=true"
       - "traefik.http.routers.homarr.rule=Host(`home.${DOMAIN}`)"

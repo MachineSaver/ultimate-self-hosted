@@ -53,7 +53,7 @@ if [[ "${USE_STORAGE_BOX:-false}" == "true" ]]; then
   fi
 
   if [[ "$mount_ok" == "true" ]]; then
-    export MEDIA_DIR="${STORAGEBOX_MOUNT}/media"
+    export MEDIA_DIR="${STORAGEBOX_MOUNT}"
     export DOWNLOADS_DIR="${STORAGEBOX_MOUNT}/downloads"
     success "Storage Box healthy; using ${STORAGEBOX_MOUNT} for media"
   else

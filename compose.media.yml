@@ -7,7 +7,7 @@
 services:
 
   # ──────────────────────────────────────────────────────────────
-  # JELLYFIN — Media server (forward auth; enable OIDC plugin separately)
+  # JELLYFIN — Media server (native OIDC via SSO plugin; local admin retained)
   # ──────────────────────────────────────────────────────────────
   jellyfin:
     image: jellyfin/jellyfin:10.10.7
@@ -31,7 +31,6 @@ services:
       - "traefik.http.routers.jellyfin.entrypoints=websecure"
       - "traefik.http.routers.jellyfin.tls.certresolver=letsencrypt"
       - "traefik.http.services.jellyfin.loadbalancer.server.port=8096"
-      - "traefik.http.routers.jellyfin.middlewares=authentik@file"
 
   # ──────────────────────────────────────────────────────────────
   # JELLYSEERR — Media request management (forward auth)

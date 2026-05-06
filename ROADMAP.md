@@ -111,7 +111,86 @@ The goal is fewer independent passwords, fewer repeated logins, and a consistent
 
 Implementation should prefer service APIs first, stable config edits second, and Playwright/browser automation only for apps that do not expose a reliable setup API.
 
-Current automation configures native OIDC for Homarr, Nextcloud, Audiobookshelf, Grafana, and Vaultwarden, plus an Authentik OIDC client for Jellyfin's optional SSO plugin. The README documents remaining local break-glass accounts explicitly; Jellyfin plugin installation remains optional because it still requires a plugin install step inside Jellyfin.
+Current automation configures native OIDC for Homarr, Jellyfin, Nextcloud, Audiobookshelf, Grafana, and Vaultwarden. The README documents remaining local break-glass accounts explicitly, including Jellyfin's local admin account for recovery and Jellyseerr integration.
+
+## Homarr Default Dashboard Experience
+
+Improve the first-login Homarr board from a static service launcher into a useful default operations dashboard. Keep the current grouped service bookmarks, but add visual polish and live widgets that match the services installed by this stack.
+
+Recommended implementation order:
+
+- [x] Add a cleaned-up local glassmorphism theme inspired by `https://pastebin.com/aMG7t7He`; avoid broad fragile selectors where possible.
+- [x] Add the native Homarr Docker stats widget, using the existing read-only Docker socket mount.
+- [x] Add a server/system resources widget using a supported backend such as Glances or Dash.; use `https://github.com/lxBlazarxl/System-Monitor-iFrame-Widget-for-Homarr` as inspiration only unless native widgets are insufficient.
+- [ ] Add the qBittorrent Download Client widget.
+- [ ] Add the Sonarr/Radarr/Lidarr media calendar widget.
+- [ ] Add the Jellyfin Media Server Streams widget.
+- [ ] Add Jellyseerr request list and request stats widgets if the Homarr integration can be seeded reliably.
+- [ ] Add lightweight utility widgets such as RSS feed, Weather, and Date/time where they do not create first-run configuration friction.
+
+Implementation notes:
+
+- Seed required Homarr integrations/API credentials idempotently during `scripts/configure-homarr.sh` or a dedicated follow-up script.
+- Prefer native Homarr widgets over custom iframe services when Homarr supports the same data directly.
+- Keep the board useful even when an integration cannot be configured yet; failed optional widgets should not block the whole install.
+- Do not include the Media Releases widget by default.
+
+Live verification notes:
+
+- 2026-05-05: `scripts/configure-homarr.sh` now applies a board-local glassmorphism theme to the Home board through Homarr's `board.custom_css` field, independent of whether the service bookmarks were already seeded.
+- 2026-05-05: Live `home.zenlabs.us` update applied by copying the updated script to `/home/developer/ultimate-self-hosted/scripts/configure-homarr.sh` and re-running it. The script detected the existing Home board, skipped reseeding, applied the theme, and restarted Homarr.
+- 2026-05-05: Live DB verification inside the Homarr container showed `primary_color=#38bdf8`, `secondary_color=#fb923c`, `opacity=82`, `item_radius=md`, and a non-empty `custom_css` value containing the `--ush-surface` theme marker. `curl -k https://home.zenlabs.us/` returned `HTTP 200`.
+- 2026-05-06: Repository automation now adds a private Glances service for Homarr's native System Resources widget, connects Homarr to the internal network, and idempotently seeds an Operations section with Docker stats and System Resources widgets on both fresh and existing Home boards.
+
+### Jellyfin OIDC Migration
+
+**Status:** Completed and live verified
+**Priority:** High
+**Owner:** Repository automation plus live instance verification
+
+Move Jellyfin from Traefik forward-auth to Jellyfin-native OIDC through the SSO Authentication plugin. The current forward-auth router protects `jellyfin.<domain>` before Jellyfin can answer its own API, websocket, server picker, and media playback requests. That blocks normal Jellyfin client behavior even though the public page can redirect through Authentik.
+
+Planned implementation:
+
+- [x] Remove `authentik@file` from the Jellyfin Traefik router only; keep Authentik forward-auth for services that do not support native OIDC.
+- [x] Keep `JELLYFIN_PublishedServerUrl=https://jellyfin.${DOMAIN}` so clients advertise the public HTTPS endpoint.
+- [x] Keep the generated Authentik OIDC provider/application for Jellyfin with callback `https://jellyfin.${DOMAIN}/sso/OID/redirect/authentik`.
+- [x] Add an idempotent `scripts/configure-jellyfin-oidc.sh` that runs after `scripts/configure-jellyfin.sh`.
+- [x] Automate SSO plugin configuration through Jellyfin's SSO API at `/sso/OID/Add/authentik?api_key=...` once the plugin is installed and loaded.
+- [x] Prefer a permissive single-user default first: enable the provider, allow all folders, avoid required group/role claims, and keep the local Jellyfin admin account as break-glass access.
+- [x] Add or document a login entry point for `https://jellyfin.${DOMAIN}/sso/OID/start/authentik`.
+- [x] Update README service/auth tables so Jellyfin is described as native OIDC with a local break-glass account, not forward-auth.
+- [x] Update smoke tests so Jellyfin verification expects the public API to answer Jellyfin JSON and then verifies the Authentik SSO login path on the live stack.
+- [x] Verify the migration against the live `jellyfin.zenlabs.us` instance.
+
+Open implementation questions:
+
+- [x] Confirm the unattended plugin install path on the live pinned Jellyfin image. Current automation uses Jellyfin's plugin repository/package APIs and restarts Jellyfin when the SSO plugin is first installed.
+- [x] Decide whether the automation should create a Jellyfin API key explicitly or reuse the first-run admin token only during configuration. The OIDC script now creates/reuses a dedicated `ultimate-self-hosted-jellyfin-oidc` API key for the plugin API.
+- [x] Confirm whether the login page button can be written through Jellyfin API/configuration or whether the documented SSO start URL is sufficient for the first pass. First pass uses the plugin start URL directly in docs and smoke tests.
+
+Completion criteria:
+
+- `https://jellyfin.zenlabs.us/System/Info/Public` returns Jellyfin public server JSON without a 302 to Authentik.
+- `https://jellyfin.zenlabs.us/sso/OID/start/authentik` starts Authentik login and returns to Jellyfin successfully.
+- Selecting the populated "Zenlabs Jellyfin" server in the Jellyfin web UI loads the library instead of returning to the server picker.
+- At least one movie can be opened and playback starts through `jellyfin.zenlabs.us`.
+- Local Jellyfin admin login still works for recovery.
+- Live verification notes are added to this roadmap entry, including the exact date and any remaining client limitations.
+
+Live verification notes:
+
+- 2026-05-05: Live migration applied via `developer@zenlabs.us`. The live `docker-compose.yml` Jellyfin router no longer has `traefik.http.routers.jellyfin.middlewares=authentik@file`; Jellyfin was recreated and Traefik was restarted to force Docker-provider router refresh.
+- 2026-05-05: `scripts/configure-jellyfin-oidc.sh` installed Jellyfin SSO Authentication `3.5.2.4`, restarted Jellyfin, and configured provider `authentik`.
+- 2026-05-05: Existing Authentik Jellyfin OAuth2 provider was updated in place to client ID `JELLYFIN_OIDC_CLIENT_ID`, callback `https://jellyfin.zenlabs.us/sso/OID/redirect/authentik`, and application slug `jellyfin`.
+- 2026-05-05: `curl -k -i https://jellyfin.zenlabs.us/System/Info/Public` returns `HTTP/2 200` with Jellyfin JSON and `StartupWizardCompleted:true`, with no Authentik 302.
+- 2026-05-05: `GET https://jellyfin.zenlabs.us/sso/OID/start/authentik` returns `HTTP/2 302` to `auth.zenlabs.us/application/o/authorize` with client ID `jellyfin-1393d53e0a761711` and callback `https://jellyfin.zenlabs.us/sso/OID/redirect/authentik`.
+- 2026-05-05: Browser verification from the live host completed Authentik login, returned to Jellyfin, opened the Jellyfin WebSocket, and landed on `https://jellyfin.zenlabs.us/web/index.html#/home.html` with visible Home, Audiobooks, Books, Movies, Music, and TV Shows navigation.
+- 2026-05-05: Follow-up storage check found the Storage Box mounted correctly with 86 GB used, but media was stored in top-level folders (`/mnt/storagebox/movies`, `/mnt/storagebox/tv`, `/mnt/storagebox/music`, `/mnt/storagebox/audiobooks`) while the stack was mounting `/mnt/storagebox/media`. Live `.env` and `scripts/start.sh` were updated to use `MEDIA_DIR=/mnt/storagebox`, and the repository installer/start script now uses the Storage Box mount root as `MEDIA_DIR`.
+- 2026-05-05: Jellyfin now sees the media files inside the container under `/media/movies`, `/media/tv`, `/media/music`, and `/media/audiobooks`.
+- 2026-05-05: Local Jellyfin break-glass account `akadmin` had lost administrator permission (`IsAdmin false`), blocking library refresh. The Jellyfin DB was backed up to `/tmp/jellyfin.db.before-admin.<timestamp>`, permission kind `0` was restored to `Value=1`, and `akadmin` verified as `IsAdmin true`.
+- 2026-05-05: Library refresh completed and Jellyfin reported `Movie=21 Episode=35 Audio=38`.
+- 2026-05-05: Playback path verified through the public endpoint: first indexed movie `Frozen` returned playback info with one media source, and a ranged stream request to `https://jellyfin.zenlabs.us/Videos/.../stream` returned `HTTP 206` with `content-type=video/mp4`.
 
 Known OIDC gaps discovered during live browser testing — all resolved:
 

@@ -8,6 +8,7 @@ const SECTIONS = [
   'Network & VPN',
   'Monitoring',
   'Identity',
+  'Operations',
 ];
 
 const APPS = [
@@ -78,7 +79,7 @@ test.describe('Homarr Home board', () => {
     await expect(page.getByText('Media', { exact: true }).first()).toBeVisible();
   });
 
-  test('all 6 category sections are visible on the board', async ({ page }) => {
+  test('all 7 category sections are visible on the board', async ({ page }) => {
     for (const section of SECTIONS) {
       await expect(
         page.getByText(section, { exact: true }).first()

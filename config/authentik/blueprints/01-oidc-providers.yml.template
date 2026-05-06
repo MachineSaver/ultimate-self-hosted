@@ -137,10 +137,10 @@ entries:
   - model: authentik_core.application
     state: present
     identifiers:
-      slug: jellyfin-oidc
+      slug: jellyfin
     attrs:
-      name: Jellyfin OIDC
-      slug: jellyfin-oidc
+      name: Jellyfin
+      slug: jellyfin
       provider: !Find [authentik_providers_oauth2.oauth2provider, [name, jellyfin]]
       meta_launch_url: "https://jellyfin.{{DOMAIN}}"
       meta_description: Media server

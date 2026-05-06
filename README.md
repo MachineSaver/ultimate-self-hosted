@@ -20,7 +20,7 @@ Service metadata is tracked in `services.yml` so automation and documentation ca
 |---|---|---|---|---|
 | **Dashboard** | Homarr | `home.domain` | Native OIDC | |
 | **Identity** | Authentik | `auth.domain` | — (is the IdP) | |
-| **Media** | Jellyfin | `jellyfin.domain` | Forward Auth + optional OIDC plugin | Authentik OIDC client is generated |
+| **Media** | Jellyfin | `jellyfin.domain` | Native OIDC | SSO Authentication plugin configured automatically; local admin retained |
 | **Media** | Jellyseerr | `requests.domain` | Forward Auth | |
 | **Media** | Audiobookshelf | `audiobooks.domain` | Native OIDC | |
 | **Media** | Booklore | `books.domain` | Forward Auth | |
@@ -144,13 +144,13 @@ sequenceDiagram
 
     note over B1,S: One login grants access to ALL forward-auth services
 
-    box Native OIDC (Homarr, Grafana, Nextcloud, Vaultwarden, Audiobookshelf)
+    box Native OIDC (Homarr, Jellyfin, Grafana, Nextcloud, Vaultwarden, Audiobookshelf)
         participant B2 as Browser
         participant App as App
         participant AK2 as Authentik
     end
 
-    B2->>App: GET home.domain
+    B2->>App: GET app.domain
     App-->>B2: 302 → auth.domain/authorize?client_id=homarr
     B2->>AK2: Authorize (session already exists)
     AK2-->>B2: 302 → home.domain/callback?code=...
@@ -333,6 +333,8 @@ The installer will prompt for:
 | Use Hetzner Storage Box? | `N` | If yes: hostname, username, password, SMB share name, mount point |
 | SMB share name | `backup` | Hetzner's default share name for the main account; sub-users use their sub-user name |
 
+When a Storage Box is used, the stack expects top-level media folders under the mount point: `/mnt/storagebox/movies`, `/mnt/storagebox/tv`, `/mnt/storagebox/music`, `/mnt/storagebox/audiobooks`, `/mnt/storagebox/books`, and `/mnt/storagebox/podcasts`.
+
 The installer generates all secrets, processes config templates, pulls images, and starts the stack. First run takes 5–10 minutes.
 
 The installer also handles these automatically so you don't have to:
@@ -350,11 +352,12 @@ The installer automatically configures most services at the end of the install r
 | What | Notes |
 |---|---|
 | Authentik admin username | Renamed from `akadmin` to your chosen username |
-| Authentik OIDC clients | Homarr, Jellyfin plugin, Nextcloud, Audiobookshelf, Grafana, and Vaultwarden providers/applications created in Authentik |
+| Authentik OIDC clients | Homarr, Jellyfin, Nextcloud, Audiobookshelf, Grafana, and Vaultwarden providers/applications created in Authentik |
 | Nextcloud OIDC | `user_oidc` app installed and wired to Authentik |
 | Audiobookshelf OIDC | Root user created; OpenID Connect enabled |
-| Homarr first run | External admin group `homarr-admins` created; onboarding completed; Home board seeded with all stack services grouped by category |
+| Homarr first run | External admin group `homarr-admins` created; onboarding completed; Home board seeded with service sections plus Operations widgets for Docker stats and system resources |
 | Jellyfin first run | Admin user created; Movies, TV Shows, Music, Audiobooks, and Books libraries added when paths exist |
+| Jellyfin OIDC | SSO Authentication plugin repository added; plugin installed when needed; Authentik OpenID provider `authentik` configured |
 | Jellyseerr first run | Connected to Jellyfin; libraries synced; Radarr and Sonarr connected with quality profiles and root folders |
 | Sonarr setup | qBittorrent download client configured; `/tv` root folder added |
 | Radarr setup | qBittorrent download client configured; `/movies` root folder added |
@@ -374,6 +377,7 @@ If any step fails, the installer stops before printing the setup summary. Fix th
 ./scripts/configure-authentik-homarr-oidc.sh
 ./scripts/configure-homarr.sh
 ./scripts/configure-jellyfin.sh
+./scripts/configure-jellyfin-oidc.sh
 ./scripts/configure-jellyseerr.sh
 ./scripts/configure-sonarr.sh
 ./scripts/configure-radarr.sh
@@ -386,12 +390,16 @@ If any step fails, the installer stops before printing the setup summary. Fix th
 
 Jellyseerr uses `JELLYFIN_ADMIN_USER` / `JELLYFIN_ADMIN_PASSWORD` from `.env` to connect to Jellyfin. Fresh installs default these to the main admin credentials; override them only if Jellyfin was initialized manually with different credentials.
 
+**Homarr operations dashboard:**
+
+The default Homarr Home board includes an `Operations` section. It uses Homarr's native Docker stats widget through the read-only Docker socket mount, and Homarr's native System Resources widget through an internal-only Glances service at `http://glances:61208`. Glances is not exposed through Traefik.
+
 **Local break-glass accounts:**
 
 | Service | Local account status |
 |---|---|
 | Authentik | Bootstrap admin remains available as the identity-provider break-glass account |
-| Jellyfin | Local admin is required for first-run setup and Jellyseerr API access; OIDC plugin setup is optional |
+| Jellyfin | Local admin remains enabled for recovery and Jellyseerr API access; browser login uses Authentik OIDC through the SSO Authentication plugin |
 | Audiobookshelf | Local root account remains enabled alongside OIDC |
 | Uptime Kuma | Local admin account is configured because Uptime Kuma has no native OIDC path here |
 | qBittorrent | Local WebUI credentials are configured, with Traefik forward auth as the external gate |
@@ -409,7 +417,6 @@ To generate a new key at any time: `./scripts/configure-headscale.sh`
 
 **Optional:**
 
-- Jellyfin OIDC plugin — install SSO Authentication from Jellyfin → Dashboard → Plugins → Catalog, then configure provider `authentik` with `JELLYFIN_OIDC_CLIENT_ID` / `JELLYFIN_OIDC_CLIENT_SECRET` from `.env`
 - Vaultwarden admin panel — `https://vault.yourdomain.com/admin`, password is `AUTHENTIK_BOOTSTRAP_TOKEN` from `.env`
 
 ---

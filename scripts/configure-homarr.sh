@@ -514,6 +514,190 @@ if (!verified?.css?.includes('--ush-surface')) {
 console.log('Homarr Home board theme applied.');
 NODE
 
+echo "Ensuring Homarr Home board operations widgets..."
+docker exec -i \
+  -e HOMARR_DB_PATH="${HOMARR_DB_PATH}" \
+  homarr node - <<'NODE'
+const crypto = require('crypto');
+const fs = require('fs');
+const Database = require('better-sqlite3');
+
+const dbPath = process.env.HOMARR_DB_PATH || '/appdata/db/db.sqlite';
+if (!fs.existsSync(dbPath)) throw new Error(`Homarr database not found at ${dbPath}`);
+
+const newId = () => crypto.randomBytes(12).toString('hex');
+const sj = obj => JSON.stringify({ json: obj });
+const EMPTY = '{"json":{}}';
+
+const db = new Database(dbPath);
+const allTables = db.prepare("SELECT name FROM sqlite_master WHERE type='table'").all().map(r => r.name);
+for (const t of ['board', 'section', 'item', 'layout', 'item_layout', 'section_layout']) {
+  if (!allTables.includes(t)) throw new Error(`Required table "${t}" not found in Homarr DB.`);
+}
+
+const tableInfo = {};
+const cols = t => {
+  if (!tableInfo[t]) {
+    tableInfo[t] = db.prepare(`PRAGMA table_info("${t}")`).all().map(c => c.name);
+  }
+  return tableInfo[t];
+};
+const pick = (table, ...candidates) => {
+  const c = cols(table);
+  for (const cand of candidates) if (c.includes(cand)) return cand;
+  throw new Error(`Table "${table}" missing all of [${candidates.join(', ')}]. Found: ${c.join(', ')}`);
+};
+const Q = c => `"${c}"`;
+
+const SC = { boardId: pick('section', 'board_id', 'boardId') };
+const IC = {
+  boardId: pick('item', 'board_id', 'boardId'),
+  advOpts: pick('item', 'advanced_options', 'advancedOptions'),
+};
+const LC = { boardId: pick('layout', 'board_id', 'boardId') };
+const ILC = {
+  itemId: pick('item_layout', 'item_id', 'itemId'),
+  sectionId: pick('item_layout', 'section_id', 'sectionId'),
+  layoutId: pick('item_layout', 'layout_id', 'layoutId'),
+  x: pick('item_layout', 'x_offset', 'xOffset'),
+  y: pick('item_layout', 'y_offset', 'yOffset'),
+};
+const SLC = {
+  sectionId: pick('section_layout', 'section_id', 'sectionId'),
+  layoutId: pick('section_layout', 'layout_id', 'layoutId'),
+  x: pick('section_layout', 'x_offset', 'xOffset'),
+  y: pick('section_layout', 'y_offset', 'yOffset'),
+};
+
+const hasIntegrations = allTables.includes('integration') && allTables.includes('integration_item');
+let INTC = null;
+let IIC = null;
+if (hasIntegrations) {
+  INTC = {
+    id: pick('integration', 'id'),
+    name: pick('integration', 'name'),
+    url: pick('integration', 'url'),
+    kind: pick('integration', 'kind'),
+  };
+  IIC = {
+    itemId: pick('integration_item', 'item_id', 'itemId'),
+    integrationId: pick('integration_item', 'integration_id', 'integrationId'),
+  };
+}
+
+const board = db.prepare("SELECT id FROM board WHERE name = 'Home'").get();
+if (!board) {
+  db.close();
+  console.warn('WARNING: Home board not found - skipping operations widgets.');
+  process.exit(0);
+}
+
+const layout = db.prepare(`SELECT id FROM layout WHERE ${Q(LC.boardId)} = ? AND name = 'default' ORDER BY breakpoint LIMIT 1`).get(board.id)
+  || db.prepare(`SELECT id FROM layout WHERE ${Q(LC.boardId)} = ? ORDER BY breakpoint LIMIT 1`).get(board.id);
+if (!layout) {
+  db.close();
+  console.warn('WARNING: Home board has no layout - skipping operations widgets.');
+  process.exit(0);
+}
+
+const transaction = db.transaction(() => {
+  let section = db.prepare(`SELECT id FROM section WHERE ${Q(SC.boardId)} = ? AND kind = 'category' AND name = 'Operations'`).get(board.id);
+  if (!section) {
+    section = { id: newId() };
+    db.prepare(`
+      INSERT INTO section (id, ${Q(SC.boardId)}, kind, name, options, x_offset, y_offset)
+      VALUES (?, ?, 'category', 'Operations', ?, 0, 0)
+    `).run(section.id, board.id, EMPTY);
+  }
+
+  const sectionLayout = db.prepare(
+    `SELECT 1 FROM section_layout WHERE ${Q(SLC.sectionId)} = ? AND ${Q(SLC.layoutId)} = ?`
+  ).get(section.id, layout.id);
+  if (!sectionLayout) {
+    db.prepare(`
+      INSERT INTO section_layout (${Q(SLC.sectionId)}, ${Q(SLC.layoutId)}, ${Q(SLC.x)}, ${Q(SLC.y)}, width, height)
+      VALUES (?, ?, 0, 12, 12, 5)
+    `).run(section.id, layout.id);
+  }
+
+  const ensureWidget = ({ kind, options, x, y, width, height, integrationId }) => {
+    let item = db.prepare(`SELECT id FROM item WHERE ${Q(IC.boardId)} = ? AND kind = ?`).get(board.id, kind);
+    if (!item) {
+      item = { id: newId() };
+      db.prepare(`
+        INSERT INTO item (id, ${Q(IC.boardId)}, kind, options, ${Q(IC.advOpts)})
+        VALUES (?, ?, ?, ?, ?)
+      `).run(item.id, board.id, kind, sj(options), EMPTY);
+    }
+
+    const itemLayout = db.prepare(
+      `SELECT 1 FROM item_layout WHERE ${Q(ILC.itemId)} = ? AND ${Q(ILC.sectionId)} = ? AND ${Q(ILC.layoutId)} = ?`
+    ).get(item.id, section.id, layout.id);
+    if (!itemLayout) {
+      db.prepare(`
+        INSERT INTO item_layout (${Q(ILC.itemId)}, ${Q(ILC.sectionId)}, ${Q(ILC.layoutId)},
+          ${Q(ILC.x)}, ${Q(ILC.y)}, width, height)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+      `).run(item.id, section.id, layout.id, x, y, width, height);
+    }
+
+    if (integrationId && hasIntegrations) {
+      const linked = db.prepare(
+        `SELECT 1 FROM integration_item WHERE ${Q(IIC.itemId)} = ? AND ${Q(IIC.integrationId)} = ?`
+      ).get(item.id, integrationId);
+      if (!linked) {
+        db.prepare(`INSERT INTO integration_item (${Q(IIC.itemId)}, ${Q(IIC.integrationId)}) VALUES (?, ?)`)
+          .run(item.id, integrationId);
+      }
+    }
+  };
+
+  ensureWidget({
+    kind: 'dockerContainers',
+    options: { enableRowSorting: true, defaultSort: 'name', descendingDefaultSort: false },
+    x: 0,
+    y: 0,
+    width: 6,
+    height: 4,
+  });
+
+  let glancesId = null;
+  if (hasIntegrations) {
+    const existing = db.prepare(`SELECT id FROM integration WHERE ${Q(INTC.kind)} = 'glances' AND ${Q(INTC.url)} = ?`)
+      .get('http://glances:61208');
+    glancesId = existing?.id || newId();
+    if (!existing) {
+      db.prepare(`
+        INSERT INTO integration (${Q(INTC.id)}, ${Q(INTC.name)}, ${Q(INTC.url)}, ${Q(INTC.kind)})
+        VALUES (?, 'Glances', 'http://glances:61208', 'glances')
+      `).run(glancesId);
+    }
+  }
+
+  ensureWidget({
+    kind: 'systemResources',
+    options: { hasShadow: true, visibleCharts: ['cpu', 'memory', 'network'], labelDisplayMode: 'textWithIcon' },
+    x: 6,
+    y: 0,
+    width: 6,
+    height: 4,
+    integrationId: glancesId,
+  });
+});
+
+transaction();
+
+const dockerWidget = db.prepare(`SELECT 1 FROM item WHERE ${Q(IC.boardId)} = ? AND kind = 'dockerContainers'`).get(board.id);
+const systemWidget = db.prepare(`SELECT 1 FROM item WHERE ${Q(IC.boardId)} = ? AND kind = 'systemResources'`).get(board.id);
+db.close();
+
+if (!dockerWidget || !systemWidget) {
+  throw new Error('Homarr operations widgets were not verified after update');
+}
+
+console.log('Homarr Home board operations widgets configured.');
+NODE
+
 docker restart homarr >/dev/null
 
 echo "Done! Homarr OIDC first-run setup is configured."
