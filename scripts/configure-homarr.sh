@@ -350,6 +350,170 @@ db.close();
 console.log('Home board seeded with all services.');
 NODE
 
+echo "Applying Homarr Home board theme..."
+docker exec -i \
+  -e HOMARR_DB_PATH="${HOMARR_DB_PATH}" \
+  homarr node - <<'NODE'
+const fs = require('fs');
+const Database = require('better-sqlite3');
+
+const dbPath = process.env.HOMARR_DB_PATH || '/appdata/db/db.sqlite';
+if (!fs.existsSync(dbPath)) throw new Error(`Homarr database not found at ${dbPath}`);
+
+const db = new Database(dbPath);
+const board = db.prepare("SELECT id FROM board WHERE name = 'Home'").get();
+if (!board) {
+  db.close();
+  console.warn('WARNING: Home board not found — skipping theme.');
+  process.exit(0);
+}
+
+const cols = db.prepare('PRAGMA table_info("board")').all().map(c => c.name);
+const pick = (...candidates) => candidates.find(c => cols.includes(c));
+const customCssCol = pick('custom_css', 'customCss');
+const primaryCol = pick('primary_color', 'primaryColor');
+const secondaryCol = pick('secondary_color', 'secondaryColor');
+const opacityCol = pick('opacity');
+const radiusCol = pick('item_radius', 'itemRadius');
+const bgUrlCol = pick('background_image_url', 'backgroundImageUrl');
+const bgAttachmentCol = pick('background_image_attachment', 'backgroundImageAttachment');
+const bgRepeatCol = pick('background_image_repeat', 'backgroundImageRepeat');
+const bgSizeCol = pick('background_image_size', 'backgroundImageSize');
+
+if (!customCssCol) {
+  db.close();
+  throw new Error(`Table "board" has no custom CSS column. Found: ${cols.join(', ')}`);
+}
+
+const css = `
+:root {
+  --ush-surface: rgba(13, 18, 26, 0.62);
+  --ush-surface-strong: rgba(13, 18, 26, 0.78);
+  --ush-border: rgba(255, 255, 255, 0.18);
+  --ush-text: #f8fafc;
+  --ush-muted: #cbd5e1;
+  --ush-accent: #38bdf8;
+  --ush-accent-warm: #fb923c;
+}
+
+body {
+  color: var(--ush-text);
+  background:
+    radial-gradient(circle at 18% 12%, rgba(56, 189, 248, 0.30), transparent 30rem),
+    radial-gradient(circle at 86% 18%, rgba(251, 146, 60, 0.22), transparent 28rem),
+    linear-gradient(135deg, #08111f 0%, #162032 48%, #0f172a 100%) !important;
+}
+
+.mantine-AppShell-header {
+  background: var(--ush-surface-strong) !important;
+  border-bottom: 1px solid var(--ush-border) !important;
+  box-shadow: 0 18px 44px rgba(0, 0, 0, 0.24);
+  backdrop-filter: blur(18px) saturate(150%);
+}
+
+.mantine-AppShell-main {
+  background: transparent !important;
+}
+
+.grid-stack-item > .mantine-Card-root,
+.mantine-Modal-content,
+.mantine-Spotlight-content,
+.mantine-Menu-dropdown,
+.mantine-Popover-dropdown,
+.mantine-Combobox-dropdown {
+  background: var(--ush-surface) !important;
+  border: 1px solid var(--ush-border) !important;
+  box-shadow: 0 18px 44px rgba(0, 0, 0, 0.24);
+  backdrop-filter: blur(18px) saturate(150%);
+}
+
+.grid-stack-item > .mantine-Card-root {
+  transition: transform 150ms ease, border-color 150ms ease, box-shadow 150ms ease;
+}
+
+.grid-stack-item > .mantine-Card-root:hover {
+  border-color: rgba(56, 189, 248, 0.50) !important;
+  box-shadow: 0 22px 54px rgba(8, 17, 31, 0.34);
+  transform: translateY(-1px);
+}
+
+.grid-stack-item > .mantine-Badge-root {
+  background: linear-gradient(135deg, var(--ush-accent), var(--ush-accent-warm)) !important;
+  color: #07111f !important;
+  border: 0 !important;
+  box-shadow: 0 10px 24px rgba(8, 17, 31, 0.28);
+}
+
+.mantine-Title-root,
+.mantine-Text-root,
+.mantine-Badge-label {
+  color: inherit;
+}
+
+.mantine-Text-root {
+  color: var(--ush-muted);
+}
+
+.mantine-ActionIcon-root,
+.mantine-Button-root,
+.mantine-Input-input {
+  border-color: var(--ush-border) !important;
+}
+
+.mantine-ActionIcon-root:hover,
+.mantine-Button-root:hover {
+  border-color: rgba(56, 189, 248, 0.55) !important;
+}
+`.trim();
+
+const assignments = [`"${customCssCol}" = ?`];
+const values = [css];
+if (primaryCol) {
+  assignments.push(`"${primaryCol}" = ?`);
+  values.push('#38bdf8');
+}
+if (secondaryCol) {
+  assignments.push(`"${secondaryCol}" = ?`);
+  values.push('#fb923c');
+}
+if (opacityCol) {
+  assignments.push(`"${opacityCol}" = ?`);
+  values.push(82);
+}
+if (radiusCol) {
+  assignments.push(`"${radiusCol}" = ?`);
+  values.push('md');
+}
+if (bgUrlCol) {
+  assignments.push(`"${bgUrlCol}" = ?`);
+  values.push(null);
+}
+if (bgAttachmentCol) {
+  assignments.push(`"${bgAttachmentCol}" = ?`);
+  values.push('fixed');
+}
+if (bgRepeatCol) {
+  assignments.push(`"${bgRepeatCol}" = ?`);
+  values.push('no-repeat');
+}
+if (bgSizeCol) {
+  assignments.push(`"${bgSizeCol}" = ?`);
+  values.push('cover');
+}
+values.push(board.id);
+
+db.prepare(`UPDATE board SET ${assignments.join(', ')} WHERE id = ?`).run(...values);
+
+const verified = db.prepare(`SELECT "${customCssCol}" AS css FROM board WHERE id = ?`).get(board.id);
+db.close();
+
+if (!verified?.css?.includes('--ush-surface')) {
+  throw new Error('Homarr Home board theme was not verified after update');
+}
+
+console.log('Homarr Home board theme applied.');
+NODE
+
 docker restart homarr >/dev/null
 
 echo "Done! Homarr OIDC first-run setup is configured."
