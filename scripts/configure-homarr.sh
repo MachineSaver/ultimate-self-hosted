@@ -525,6 +525,43 @@ echo "Ensuring Homarr Home board operations widgets..."
 SONARR_API_KEY="${SONARR_API_KEY:-$(read_arr_api_key sonarr)}"
 RADARR_API_KEY="${RADARR_API_KEY:-$(read_arr_api_key radarr)}"
 LIDARR_API_KEY="${LIDARR_API_KEY:-$(read_arr_api_key lidarr)}"
+
+JELLYFIN_API_KEY=""
+if [[ -n "${ADMIN_USER:-}" && -n "${ADMIN_PASSWORD:-}" ]]; then
+  JELLYFIN_API_KEY=$(docker exec \
+    -e ADMIN_USER="${ADMIN_USER}" \
+    -e ADMIN_PASSWORD="${ADMIN_PASSWORD}" \
+    -i homarr node 2>/dev/null <<'JFKEY'
+(async () => {
+  try {
+    const resp = await fetch('http://jellyfin:8096/Users/AuthenticateByName', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'MediaBrowser Client="ush", Device="installer", DeviceId="ush-homarr", Version="1.0"',
+      },
+      body: JSON.stringify({ Username: process.env.ADMIN_USER, Pw: process.env.ADMIN_PASSWORD }),
+    });
+    if (!resp.ok) return;
+    const { AccessToken: token } = await resp.json();
+    if (!token) return;
+    const keysResp = await fetch('http://jellyfin:8096/Auth/Keys', {
+      headers: { 'Authorization': 'MediaBrowser Token="' + token + '"' },
+    });
+    if (!keysResp.ok) return;
+    const { Items: keys } = await keysResp.json();
+    const key = keys?.find(k => k.AppName === 'ultimate-self-hosted-jellyfin-oidc');
+    if (key) process.stdout.write(key.AccessToken);
+  } catch {}
+})();
+JFKEY
+  ) || true
+fi
+
+if [[ -z "${JELLYFIN_API_KEY}" ]]; then
+  echo "WARNING: Could not retrieve Jellyfin API key — Jellyfin media server widget will be skipped."
+fi
+
 docker exec -i \
   -e ADMIN_USER="${ADMIN_USER:-}" \
   -e ADMIN_PASSWORD="${ADMIN_PASSWORD:-}" \
@@ -532,6 +569,7 @@ docker exec -i \
   -e SONARR_API_KEY="${SONARR_API_KEY}" \
   -e RADARR_API_KEY="${RADARR_API_KEY}" \
   -e LIDARR_API_KEY="${LIDARR_API_KEY}" \
+  -e JELLYFIN_API_KEY="${JELLYFIN_API_KEY}" \
   -e HOMARR_DB_PATH="${HOMARR_DB_PATH}" \
   homarr node - <<'NODE'
 const crypto = require('crypto');
@@ -549,6 +587,7 @@ const arrIntegrations = [
   { name: 'Radarr', kind: 'radarr', url: 'http://radarr:7878', apiKey: process.env.RADARR_API_KEY || '' },
   { name: 'Lidarr', kind: 'lidarr', url: 'http://lidarr:8686', apiKey: process.env.LIDARR_API_KEY || '' },
 ];
+const jellyfinApiKey = process.env.JELLYFIN_API_KEY || '';
 
 const newId = () => crypto.randomBytes(12).toString('hex');
 const sj = obj => JSON.stringify({ json: obj });
@@ -660,11 +699,11 @@ const transaction = db.transaction(() => {
   if (!sectionLayout) {
     db.prepare(`
       INSERT INTO section_layout (${Q(SLC.sectionId)}, ${Q(SLC.layoutId)}, ${Q(SLC.x)}, ${Q(SLC.y)}, width, height)
-      VALUES (?, ?, 0, 12, 12, 12)
+      VALUES (?, ?, 0, 12, 12, 16)
     `).run(section.id, layout.id);
   } else {
     db.prepare(`
-      UPDATE section_layout SET width = 12, height = 12
+      UPDATE section_layout SET width = 12, height = 16
       WHERE ${Q(SLC.sectionId)} = ? AND ${Q(SLC.layoutId)} = ?
     `).run(section.id, layout.id);
   }
@@ -847,6 +886,28 @@ const transaction = db.transaction(() => {
       }
     }
   }
+
+  let jellyfinIntegrationId = null;
+  if (hasIntegrations && hasIntegrationSecrets && jellyfinApiKey) {
+    jellyfinIntegrationId = ensureIntegration({
+      name: 'Jellyfin',
+      kind: 'jellyfin',
+      url: 'http://jellyfin:8096',
+      secrets: { apiKey: jellyfinApiKey },
+    });
+  } else if (!jellyfinApiKey) {
+    console.warn('WARNING: Jellyfin API key not available — skipping Jellyfin media server widget.');
+  }
+
+  ensureWidget({
+    kind: 'mediaServer',
+    options: { showOnlyPlaying: false },
+    x: 0,
+    y: 12,
+    width: 12,
+    height: 4,
+    integrationId: jellyfinIntegrationId,
+  });
 });
 
 transaction();
@@ -855,9 +916,10 @@ const dockerWidget = db.prepare(`SELECT 1 FROM item WHERE ${Q(IC.boardId)} = ? A
 const systemWidget = db.prepare(`SELECT 1 FROM item WHERE ${Q(IC.boardId)} = ? AND kind = 'systemResources'`).get(board.id);
 const downloadsWidget = db.prepare(`SELECT 1 FROM item WHERE ${Q(IC.boardId)} = ? AND kind = 'downloads'`).get(board.id);
 const calendarWidget = db.prepare(`SELECT 1 FROM item WHERE ${Q(IC.boardId)} = ? AND kind = 'calendar'`).get(board.id);
+const mediaServerWidget = db.prepare(`SELECT 1 FROM item WHERE ${Q(IC.boardId)} = ? AND kind = 'mediaServer'`).get(board.id);
 db.close();
 
-if (!dockerWidget || !systemWidget || !downloadsWidget || !calendarWidget) {
+if (!dockerWidget || !systemWidget || !downloadsWidget || !calendarWidget || !mediaServerWidget) {
   throw new Error('Homarr operations widgets were not verified after update');
 }
 

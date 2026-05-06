@@ -355,7 +355,7 @@ The installer automatically configures most services at the end of the install r
 | Authentik OIDC clients | Homarr, Jellyfin, Nextcloud, Audiobookshelf, Grafana, and Vaultwarden providers/applications created in Authentik |
 | Nextcloud OIDC | `user_oidc` app installed and wired to Authentik |
 | Audiobookshelf OIDC | Root user created; OpenID Connect enabled |
-| Homarr first run | External admin group `homarr-admins` created; onboarding completed; Home board seeded with service sections plus Operations widgets for Docker stats, system resources, qBittorrent downloads, and arr calendars |
+| Homarr first run | External admin group `homarr-admins` created; onboarding completed; Home board seeded with service sections plus Operations widgets for Docker stats, system resources, qBittorrent downloads, arr calendars, and Jellyfin media server streams |
 | Jellyfin first run | Admin user created; Movies, TV Shows, Music, Audiobooks, and Books libraries added when paths exist; default libraries are configured to scan at least once per day |
 | Jellyfin OIDC | SSO Authentication plugin repository added; plugin installed when needed; Authentik OpenID provider `authentik` configured |
 | Jellyseerr first run | Connected to Jellyfin; libraries synced; Radarr and Sonarr connected with quality profiles and root folders |
@@ -392,7 +392,15 @@ Jellyseerr uses `JELLYFIN_ADMIN_USER` / `JELLYFIN_ADMIN_PASSWORD` from `.env` to
 
 **Homarr operations dashboard:**
 
-The default Homarr Home board includes an `Operations` section. It uses Homarr's native Docker stats widget through the read-only Docker socket mount, and Homarr's native System Resources widget through an internal-only Glances service at `http://glances:61208`. Glances is not exposed through Traefik.
+The default Homarr Home board includes an `Operations` section with the following native widgets:
+
+| Widget | Source | Notes |
+|---|---|---|
+| Docker stats | Read-only Docker socket mount | Container name, state, CPU, and memory |
+| System resources | Glances at `http://glances:61208` | CPU, memory, and network; Glances is not exposed through Traefik |
+| qBittorrent downloads | qBittorrent at `http://qbittorrent:8080` | Active and completed torrents |
+| Media calendar | Sonarr, Radarr, Lidarr | Upcoming and recent releases |
+| Jellyfin streams | Jellyfin at `http://jellyfin:8096` | Current and paused media sessions (`showOnlyPlaying: false`) |
 
 **Local break-glass accounts:**
 
