@@ -126,8 +126,8 @@ Recommended implementation order:
 - [x] Add the qBittorrent Download Client widget.
 - [x] Add the Sonarr/Radarr/Lidarr media calendar widget.
 - [x] Add the Jellyfin Media Server Streams widget.
-- [ ] Add Jellyseerr request list and request stats widgets if the Homarr integration can be seeded reliably.
-- [ ] Add lightweight utility widgets such as RSS feed, Weather, and Date/time where they do not create first-run configuration friction.
+- [x] Add Jellyseerr request list and request stats widgets if the Homarr integration can be seeded reliably.
+- [x] Add lightweight utility widgets such as RSS feed, Weather, and Date/time where they do not create first-run configuration friction.
 
 Implementation notes:
 
@@ -145,6 +145,7 @@ Live verification notes:
 - 2026-05-06: Repository automation now idempotently seeds Homarr's native Download Client widget in the Operations section, creates the private `qBittorrent` integration at `http://qbittorrent:8080`, and stores the configured admin WebUI credentials as Homarr-encrypted integration secrets.
 - 2026-05-06: Repository automation now also seeds Homarr's native Calendar widget for Sonarr, Radarr, and Lidarr by reading each arr API key from its container config and storing it as an encrypted Homarr integration secret when available.
 - 2026-05-06: Repository automation now seeds the native Jellyfin Media Server Streams widget (`mediaServer` kind) in the Operations section. `configure-homarr.sh` fetches the `ultimate-self-hosted-jellyfin-oidc` API key from the running Jellyfin container, creates a `jellyfin` integration at `http://jellyfin:8096`, and seeds the widget at row 12 of the Operations section (section height expanded from 12 to 16 rows). `showOnlyPlaying` is set to `false` so paused sessions remain visible. Verified live: Jellyfin integration and `mediaServer` item confirmed in Homarr DB.
+- 2026-05-06: Repository automation now seeds Jellyseerr request stats (`mediaRequests-requestStats`) and request list (`mediaRequests-requestList`) widgets in the Operations section; reads the Jellyseerr API key from `/app/config/settings.json` inside the container and stores it as an encrypted Homarr integration secret. The Jellyseerr integration's `app_id` is linked to the Jellyseerr app entry so user-facing widget links resolve to the public URL (`https://requests.zenlabs.us`) while server-side API calls continue over the internal Docker hostname. A new Utilities section is seeded with a `clock` (24-hour), `weather` (default: New York), and `rssFeed` (empty by default, user-configurable) widget. Operations section height expanded to 20 rows. All widgets are idempotent. Live verified: all 10 widget kinds and the Jellyseerr integration confirmed in Homarr DB.
 
 ### Jellyfin OIDC Migration
 

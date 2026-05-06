@@ -562,6 +562,17 @@ if [[ -z "${JELLYFIN_API_KEY}" ]]; then
   echo "WARNING: Could not retrieve Jellyfin API key — Jellyfin media server widget will be skipped."
 fi
 
+JELLYSEERR_API_KEY=""
+if docker exec jellyseerr test -f /app/config/settings.json 2>/dev/null; then
+  JELLYSEERR_API_KEY=$(docker exec jellyseerr \
+    node -e "try{const s=require('/app/config/settings.json');process.stdout.write(s.main?.apiKey||'')}catch(e){}" \
+    2>/dev/null) || true
+fi
+
+if [[ -z "${JELLYSEERR_API_KEY}" ]]; then
+  echo "WARNING: Could not retrieve Jellyseerr API key — Jellyseerr request widgets will be seeded without integration."
+fi
+
 docker exec -i \
   -e ADMIN_USER="${ADMIN_USER:-}" \
   -e ADMIN_PASSWORD="${ADMIN_PASSWORD:-}" \
@@ -570,6 +581,7 @@ docker exec -i \
   -e RADARR_API_KEY="${RADARR_API_KEY}" \
   -e LIDARR_API_KEY="${LIDARR_API_KEY}" \
   -e JELLYFIN_API_KEY="${JELLYFIN_API_KEY}" \
+  -e JELLYSEERR_API_KEY="${JELLYSEERR_API_KEY}" \
   -e HOMARR_DB_PATH="${HOMARR_DB_PATH}" \
   homarr node - <<'NODE'
 const crypto = require('crypto');
@@ -588,6 +600,7 @@ const arrIntegrations = [
   { name: 'Lidarr', kind: 'lidarr', url: 'http://lidarr:8686', apiKey: process.env.LIDARR_API_KEY || '' },
 ];
 const jellyfinApiKey = process.env.JELLYFIN_API_KEY || '';
+const jellyseerrApiKey = process.env.JELLYSEERR_API_KEY || '';
 
 const newId = () => crypto.randomBytes(12).toString('hex');
 const sj = obj => JSON.stringify({ json: obj });
@@ -699,11 +712,11 @@ const transaction = db.transaction(() => {
   if (!sectionLayout) {
     db.prepare(`
       INSERT INTO section_layout (${Q(SLC.sectionId)}, ${Q(SLC.layoutId)}, ${Q(SLC.x)}, ${Q(SLC.y)}, width, height)
-      VALUES (?, ?, 0, 12, 12, 16)
+      VALUES (?, ?, 0, 12, 12, 20)
     `).run(section.id, layout.id);
   } else {
     db.prepare(`
-      UPDATE section_layout SET width = 12, height = 16
+      UPDATE section_layout SET width = 12, height = 20
       WHERE ${Q(SLC.sectionId)} = ? AND ${Q(SLC.layoutId)} = ?
     `).run(section.id, layout.id);
   }
@@ -908,6 +921,124 @@ const transaction = db.transaction(() => {
     height: 4,
     integrationId: jellyfinIntegrationId,
   });
+
+  // Jellyseerr integration and request widgets
+  let jellyseerrIntegrationId = null;
+  if (hasIntegrations && hasIntegrationSecrets && jellyseerrApiKey) {
+    jellyseerrIntegrationId = ensureIntegration({
+      name: 'Jellyseerr',
+      kind: 'jellyseerr',
+      url: 'http://jellyseerr:5055',
+      secrets: { apiKey: jellyseerrApiKey },
+    });
+    // Link app_id so externalUrl = app.href (public URL) for user-facing widget links
+    const jsApp = db.prepare("SELECT id FROM app WHERE name = 'Jellyseerr'").get();
+    if (jsApp) {
+      db.prepare("UPDATE integration SET app_id = ? WHERE id = ? AND (app_id IS NULL OR app_id != ?)")
+        .run(jsApp.id, jellyseerrIntegrationId, jsApp.id);
+    }
+  } else if (!jellyseerrApiKey) {
+    console.warn('WARNING: Jellyseerr API key not available — seeding request widgets without integration.');
+  }
+
+  ensureWidget({
+    kind: 'mediaRequests-requestStats',
+    options: {},
+    x: 0,
+    y: 16,
+    width: 6,
+    height: 4,
+    integrationId: jellyseerrIntegrationId,
+  });
+
+  ensureWidget({
+    kind: 'mediaRequests-requestList',
+    options: { linksTargetNewTab: true },
+    x: 6,
+    y: 16,
+    width: 6,
+    height: 4,
+    integrationId: jellyseerrIntegrationId,
+  });
+
+  // Utilities section: clock, weather, RSS feed
+  let utilSection = db.prepare(
+    `SELECT id FROM section WHERE ${Q(SC.boardId)} = ? AND kind = 'category' AND name = 'Utilities'`
+  ).get(board.id);
+  if (!utilSection) {
+    utilSection = { id: newId() };
+    db.prepare(`
+      INSERT INTO section (id, ${Q(SC.boardId)}, kind, name, options, x_offset, y_offset)
+      VALUES (?, ?, 'category', 'Utilities', ?, 0, 0)
+    `).run(utilSection.id, board.id, EMPTY);
+  }
+
+  const utilSL = db.prepare(
+    `SELECT 1 FROM section_layout WHERE ${Q(SLC.sectionId)} = ? AND ${Q(SLC.layoutId)} = ?`
+  ).get(utilSection.id, layout.id);
+  if (!utilSL) {
+    db.prepare(`
+      INSERT INTO section_layout (${Q(SLC.sectionId)}, ${Q(SLC.layoutId)}, ${Q(SLC.x)}, ${Q(SLC.y)}, width, height)
+      VALUES (?, ?, 0, 32, 12, 4)
+    `).run(utilSection.id, layout.id);
+  } else {
+    db.prepare(`
+      UPDATE section_layout SET width = 12, height = 4
+      WHERE ${Q(SLC.sectionId)} = ? AND ${Q(SLC.layoutId)} = ?
+    `).run(utilSection.id, layout.id);
+  }
+
+  const ensureUtilWidget = ({ kind, options, x, y, w, h }) => {
+    let item = db.prepare(`SELECT id FROM item WHERE ${Q(IC.boardId)} = ? AND kind = ?`).get(board.id, kind);
+    if (!item) {
+      item = { id: newId() };
+      db.prepare(`
+        INSERT INTO item (id, ${Q(IC.boardId)}, kind, options, ${Q(IC.advOpts)})
+        VALUES (?, ?, ?, ?, ?)
+      `).run(item.id, board.id, kind, sj(options), EMPTY);
+    }
+    const il = db.prepare(
+      `SELECT 1 FROM item_layout WHERE ${Q(ILC.itemId)} = ? AND ${Q(ILC.sectionId)} = ? AND ${Q(ILC.layoutId)} = ?`
+    ).get(item.id, utilSection.id, layout.id);
+    if (!il) {
+      db.prepare(`
+        INSERT INTO item_layout (${Q(ILC.itemId)}, ${Q(ILC.sectionId)}, ${Q(ILC.layoutId)},
+          ${Q(ILC.x)}, ${Q(ILC.y)}, width, height)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+      `).run(item.id, utilSection.id, layout.id, x, y, w, h);
+    }
+  };
+
+  ensureUtilWidget({
+    kind: 'clock',
+    options: { is24HourFormat: true, customTitleToggle: false, customTitle: '' },
+    x: 0, y: 0, w: 4, h: 4,
+  });
+
+  ensureUtilWidget({
+    kind: 'weather',
+    options: {
+      location: { name: 'New York', latitude: 40.71427, longitude: -74.00597 },
+      isFormatFahrenheit: false,
+      disableTemperatureDecimals: false,
+      showCurrentWindSpeed: false,
+      useImperialSpeed: false,
+    },
+    x: 4, y: 0, w: 4, h: 4,
+  });
+
+  ensureUtilWidget({
+    kind: 'rssFeed',
+    options: {
+      feedUrls: [],
+      textLinesClamp: 5,
+      maximumAmountPosts: 20,
+      hideDescription: false,
+      showPosterImage: true,
+      enableRtl: false,
+    },
+    x: 8, y: 0, w: 4, h: 4,
+  });
 });
 
 transaction();
@@ -917,9 +1048,15 @@ const systemWidget = db.prepare(`SELECT 1 FROM item WHERE ${Q(IC.boardId)} = ? A
 const downloadsWidget = db.prepare(`SELECT 1 FROM item WHERE ${Q(IC.boardId)} = ? AND kind = 'downloads'`).get(board.id);
 const calendarWidget = db.prepare(`SELECT 1 FROM item WHERE ${Q(IC.boardId)} = ? AND kind = 'calendar'`).get(board.id);
 const mediaServerWidget = db.prepare(`SELECT 1 FROM item WHERE ${Q(IC.boardId)} = ? AND kind = 'mediaServer'`).get(board.id);
+const requestStatsWidget = db.prepare(`SELECT 1 FROM item WHERE ${Q(IC.boardId)} = ? AND kind = 'mediaRequests-requestStats'`).get(board.id);
+const requestListWidget = db.prepare(`SELECT 1 FROM item WHERE ${Q(IC.boardId)} = ? AND kind = 'mediaRequests-requestList'`).get(board.id);
+const clockWidget = db.prepare(`SELECT 1 FROM item WHERE ${Q(IC.boardId)} = ? AND kind = 'clock'`).get(board.id);
+const weatherWidget = db.prepare(`SELECT 1 FROM item WHERE ${Q(IC.boardId)} = ? AND kind = 'weather'`).get(board.id);
+const rssFeedWidget = db.prepare(`SELECT 1 FROM item WHERE ${Q(IC.boardId)} = ? AND kind = 'rssFeed'`).get(board.id);
 db.close();
 
-if (!dockerWidget || !systemWidget || !downloadsWidget || !calendarWidget || !mediaServerWidget) {
+if (!dockerWidget || !systemWidget || !downloadsWidget || !calendarWidget || !mediaServerWidget ||
+    !requestStatsWidget || !requestListWidget || !clockWidget || !weatherWidget || !rssFeedWidget) {
   throw new Error('Homarr operations widgets were not verified after update');
 }
 
