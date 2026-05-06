@@ -102,6 +102,7 @@ Prefer Authentik/OIDC over local app accounts wherever the upstream service supp
 - reduce first-run local admin prompts where automation is possible
 - automate Jellyfin first-run setup with an API-first script using `.env` admin credentials
 - create default Jellyfin libraries from configurable media paths, skipping missing directories
+- configure default Jellyfin libraries to refresh at least once per day
 - automate Jellyseerr setup after Jellyfin is initialized, including Jellyfin connection/API key setup
 - document which services still require a local break-glass/admin account
 - keep generated OIDC clients, scopes, callback URLs, and group mappings in one repeatable setup path

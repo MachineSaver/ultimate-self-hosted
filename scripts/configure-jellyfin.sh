@@ -18,6 +18,7 @@ JELLYFIN_TV_DIR="${JELLYFIN_TV_DIR:-/media/tv}"
 JELLYFIN_MUSIC_DIR="${JELLYFIN_MUSIC_DIR:-/media/music}"
 JELLYFIN_BOOKS_DIR="${JELLYFIN_BOOKS_DIR:-/media/books}"
 JELLYFIN_AUDIOBOOKS_DIR="${JELLYFIN_AUDIOBOOKS_DIR:-/media/audiobooks}"
+JELLYFIN_LIBRARY_REFRESH_INTERVAL_DAYS="${JELLYFIN_LIBRARY_REFRESH_INTERVAL_DAYS:-1}"
 
 BASE_URL="http://localhost:8096"
 AUTH_HEADER='MediaBrowser Client="ultimate-self-hosted", Device="installer", DeviceId="ultimate-self-hosted-installer", Version="1.0"'
@@ -162,6 +163,24 @@ create_library() {
     "curl -fsS -G -X POST -H \"Authorization: MediaBrowser Token=\\\"\$JF_TOKEN\\\"\" --data-urlencode \"name=\$JF_NAME\" --data-urlencode \"collectionType=\$JF_TYPE\" --data-urlencode \"paths=\$JF_PATH\" --data-urlencode 'refreshLibrary=false' '${BASE_URL}/Library/VirtualFolders'" >/dev/null
 }
 
+configure_library_refresh_interval() {
+  local name="$1"
+
+  docker compose exec -T \
+    -e JF_LIBRARY_NAME="${name}" \
+    -e JF_REFRESH_DAYS="${JELLYFIN_LIBRARY_REFRESH_INTERVAL_DAYS}" \
+    jellyfin sh -lc '
+      options="/config/root/default/${JF_LIBRARY_NAME}/options.xml"
+      [ -f "$options" ] || exit 0
+
+      if grep -q "<AutomaticRefreshIntervalDays>" "$options"; then
+        sed -i -E "s|<AutomaticRefreshIntervalDays>[0-9]+</AutomaticRefreshIntervalDays>|<AutomaticRefreshIntervalDays>${JF_REFRESH_DAYS}</AutomaticRefreshIntervalDays>|" "$options"
+      else
+        sed -i "s|</LibraryOptions>|  <AutomaticRefreshIntervalDays>${JF_REFRESH_DAYS}</AutomaticRefreshIntervalDays>\n</LibraryOptions>|" "$options"
+      fi
+    '
+}
+
 verify_library() {
   local token="$1" name="$2"
   library_exists "${token}" "${name}" || {
@@ -185,6 +204,12 @@ create_library "${JELLYFIN_TOKEN}" "TV Shows"   "tvshows"   "${JELLYFIN_TV_DIR}"
 create_library "${JELLYFIN_TOKEN}" "Music"      "music"      "${JELLYFIN_MUSIC_DIR}"
 create_library "${JELLYFIN_TOKEN}" "Audiobooks" "audiobooks" "${JELLYFIN_AUDIOBOOKS_DIR}"
 create_library "${JELLYFIN_TOKEN}" "Books"      "books"      "${JELLYFIN_BOOKS_DIR}"
+
+configure_library_refresh_interval "Movies"
+configure_library_refresh_interval "TV Shows"
+configure_library_refresh_interval "Music"
+configure_library_refresh_interval "Audiobooks"
+configure_library_refresh_interval "Books"
 
 refresh_library "${JELLYFIN_TOKEN}"
 

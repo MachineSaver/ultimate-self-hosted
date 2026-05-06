@@ -356,7 +356,7 @@ The installer automatically configures most services at the end of the install r
 | Nextcloud OIDC | `user_oidc` app installed and wired to Authentik |
 | Audiobookshelf OIDC | Root user created; OpenID Connect enabled |
 | Homarr first run | External admin group `homarr-admins` created; onboarding completed; Home board seeded with service sections plus Operations widgets for Docker stats, system resources, qBittorrent downloads, and arr calendars |
-| Jellyfin first run | Admin user created; Movies, TV Shows, Music, Audiobooks, and Books libraries added when paths exist |
+| Jellyfin first run | Admin user created; Movies, TV Shows, Music, Audiobooks, and Books libraries added when paths exist; default libraries are configured to scan at least once per day |
 | Jellyfin OIDC | SSO Authentication plugin repository added; plugin installed when needed; Authentik OpenID provider `authentik` configured |
 | Jellyseerr first run | Connected to Jellyfin; libraries synced; Radarr and Sonarr connected with quality profiles and root folders |
 | Sonarr setup | qBittorrent download client configured; `/tv` root folder added |
