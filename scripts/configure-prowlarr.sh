@@ -66,7 +66,18 @@ async function req(method, path, body) {
 async function ensureApp(existing, cfg) {
   const found = existing.find(a => a.implementation === cfg.implementation);
   if (found) {
-    console.log(`  ${cfg.name} already registered in Prowlarr.`);
+    const merged = {
+      ...found,
+      name: cfg.name,
+      enable: true,
+      syncLevel: cfg.syncLevel,
+      fields: found.fields.map(field => {
+        const desired = cfg.fields.find(candidate => candidate.name === field.name);
+        return desired ? { ...field, value: desired.value } : field;
+      }),
+    };
+    await req('PUT', `/api/v1/applications/${found.id}`, merged);
+    console.log(`  ${cfg.name} already registered in Prowlarr — updated sync settings.`);
     return;
   }
   await req('POST', '/api/v1/applications', cfg);
@@ -114,14 +125,13 @@ async function main() {
     implementation: 'Sonarr',
     configContract: 'SonarrSettings',
     enable: true,
+    syncLevel: 'addOnly',
     fields: [
       { name: 'prowlarrUrl',   value: 'http://prowlarr:9696' },
       { name: 'baseUrl',       value: 'http://sonarr:8989' },
       { name: 'apiKey',        value: process.env.SONARR_API },
-      { name: 'syncLevel',     value: 'addOnly' },
-      { name: 'animeSyncLevel',value: 'disabled' },
-      { name: 'categories',    value: [5000, 5010, 5020, 5030, 5040, 5045, 5050, 5060, 5070, 5080] },
-      { name: 'animeCategories', value: [] },
+      { name: 'syncCategories', value: [5000, 5010, 5020, 5030, 5040, 5045, 5050, 5060, 5070, 5080] },
+      { name: 'animeSyncCategories', value: [] },
     ],
   });
 
@@ -130,12 +140,12 @@ async function main() {
     implementation: 'Radarr',
     configContract: 'RadarrSettings',
     enable: true,
+    syncLevel: 'addOnly',
     fields: [
       { name: 'prowlarrUrl', value: 'http://prowlarr:9696' },
       { name: 'baseUrl',     value: 'http://radarr:7878' },
       { name: 'apiKey',      value: process.env.RADARR_API },
-      { name: 'syncLevel',   value: 'addOnly' },
-      { name: 'categories',  value: [2000, 2010, 2020, 2030, 2040, 2045, 2050, 2060, 2070, 2080] },
+      { name: 'syncCategories', value: [2000, 2010, 2020, 2030, 2040, 2045, 2050, 2060, 2070, 2080] },
     ],
   });
 
@@ -144,12 +154,12 @@ async function main() {
     implementation: 'Lidarr',
     configContract: 'LidarrSettings',
     enable: true,
+    syncLevel: 'addOnly',
     fields: [
       { name: 'prowlarrUrl', value: 'http://prowlarr:9696' },
       { name: 'baseUrl',     value: 'http://lidarr:8686' },
       { name: 'apiKey',      value: process.env.LIDARR_API },
-      { name: 'syncLevel',   value: 'addOnly' },
-      { name: 'categories',  value: [3000, 3010, 3020, 3030, 3040, 3050] },
+      { name: 'syncCategories', value: [3000, 3010, 3020, 3030, 3040, 3050] },
     ],
   });
 
@@ -167,7 +177,11 @@ async function main() {
   const finalApps = await req('GET', '/api/v1/applications');
   const names = finalApps.map(a => a.name);
   for (const expected of ['Sonarr', 'Radarr', 'Lidarr']) {
-    if (!names.includes(expected)) throw new Error(`${expected} not found in Prowlarr after setup.`);
+    const app = finalApps.find(a => a.name === expected);
+    if (!app) throw new Error(`${expected} not found in Prowlarr after setup.`);
+    if (!app.enable || app.syncLevel === 'disabled') {
+      throw new Error(`${expected} Prowlarr sync is not enabled after setup.`);
+    }
   }
   console.log('Done! Prowlarr connected to Sonarr, Radarr, Lidarr with baseline indexers.');
 }

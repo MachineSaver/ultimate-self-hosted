@@ -18,6 +18,13 @@ fi
 HOMARR_ADMIN_GROUP="${HOMARR_ADMIN_GROUP:-homarr-admins}"
 HOMARR_DB_PATH="${HOMARR_DB_PATH:-/appdata/db/db.sqlite}"
 
+read_arr_api_key() {
+  local container="$1"
+  docker exec "${container}" sh -c \
+    "sed -n 's:.*<ApiKey>\\(.*\\)</ApiKey>.*:\\1:p' /config/config.xml 2>/dev/null | head -n1" \
+    2>/dev/null || true
+}
+
 echo "Waiting for Homarr to be ready..."
 retries=0
 until docker exec homarr node -e \
@@ -515,7 +522,16 @@ console.log('Homarr Home board theme applied.');
 NODE
 
 echo "Ensuring Homarr Home board operations widgets..."
+SONARR_API_KEY="${SONARR_API_KEY:-$(read_arr_api_key sonarr)}"
+RADARR_API_KEY="${RADARR_API_KEY:-$(read_arr_api_key radarr)}"
+LIDARR_API_KEY="${LIDARR_API_KEY:-$(read_arr_api_key lidarr)}"
 docker exec -i \
+  -e ADMIN_USER="${ADMIN_USER:-}" \
+  -e ADMIN_PASSWORD="${ADMIN_PASSWORD:-}" \
+  -e HOMARR_SECRET_KEY="${HOMARR_SECRET_KEY:-}" \
+  -e SONARR_API_KEY="${SONARR_API_KEY}" \
+  -e RADARR_API_KEY="${RADARR_API_KEY}" \
+  -e LIDARR_API_KEY="${LIDARR_API_KEY}" \
   -e HOMARR_DB_PATH="${HOMARR_DB_PATH}" \
   homarr node - <<'NODE'
 const crypto = require('crypto');
@@ -525,9 +541,27 @@ const Database = require('better-sqlite3');
 const dbPath = process.env.HOMARR_DB_PATH || '/appdata/db/db.sqlite';
 if (!fs.existsSync(dbPath)) throw new Error(`Homarr database not found at ${dbPath}`);
 
+const adminUser = process.env.ADMIN_USER || '';
+const adminPassword = process.env.ADMIN_PASSWORD || '';
+const secretKey = process.env.HOMARR_SECRET_KEY || process.env.SECRET_ENCRYPTION_KEY || '';
+const arrIntegrations = [
+  { name: 'Sonarr', kind: 'sonarr', url: 'http://sonarr:8989', apiKey: process.env.SONARR_API_KEY || '' },
+  { name: 'Radarr', kind: 'radarr', url: 'http://radarr:7878', apiKey: process.env.RADARR_API_KEY || '' },
+  { name: 'Lidarr', kind: 'lidarr', url: 'http://lidarr:8686', apiKey: process.env.LIDARR_API_KEY || '' },
+];
+
 const newId = () => crypto.randomBytes(12).toString('hex');
 const sj = obj => JSON.stringify({ json: obj });
 const EMPTY = '{"json":{}}';
+const encryptSecret = value => {
+  if (!secretKey || !/^[a-fA-F0-9]{64}$/.test(secretKey)) {
+    throw new Error('HOMARR_SECRET_KEY must be a 64-character hex value to seed integration secrets');
+  }
+  const iv = crypto.randomBytes(16);
+  const cipher = crypto.createCipheriv('aes-256-cbc', Buffer.from(secretKey, 'hex'), iv);
+  const encrypted = Buffer.concat([cipher.update(value), cipher.final()]);
+  return `${encrypted.toString('hex')}.${iv.toString('hex')}`;
+};
 
 const db = new Database(dbPath);
 const allTables = db.prepare("SELECT name FROM sqlite_master WHERE type='table'").all().map(r => r.name);
@@ -570,8 +604,10 @@ const SLC = {
 };
 
 const hasIntegrations = allTables.includes('integration') && allTables.includes('integration_item');
+const hasIntegrationSecrets = allTables.includes('integrationSecret');
 let INTC = null;
 let IIC = null;
+let ISC = null;
 if (hasIntegrations) {
   INTC = {
     id: pick('integration', 'id'),
@@ -582,6 +618,14 @@ if (hasIntegrations) {
   IIC = {
     itemId: pick('integration_item', 'item_id', 'itemId'),
     integrationId: pick('integration_item', 'integration_id', 'integrationId'),
+  };
+}
+if (hasIntegrationSecrets) {
+  ISC = {
+    kind: pick('integrationSecret', 'kind'),
+    value: pick('integrationSecret', 'value'),
+    updatedAt: pick('integrationSecret', 'updated_at', 'updatedAt'),
+    integrationId: pick('integrationSecret', 'integration_id', 'integrationId'),
   };
 }
 
@@ -616,7 +660,12 @@ const transaction = db.transaction(() => {
   if (!sectionLayout) {
     db.prepare(`
       INSERT INTO section_layout (${Q(SLC.sectionId)}, ${Q(SLC.layoutId)}, ${Q(SLC.x)}, ${Q(SLC.y)}, width, height)
-      VALUES (?, ?, 0, 12, 12, 5)
+      VALUES (?, ?, 0, 12, 12, 12)
+    `).run(section.id, layout.id);
+  } else {
+    db.prepare(`
+      UPDATE section_layout SET width = 12, height = 12
+      WHERE ${Q(SLC.sectionId)} = ? AND ${Q(SLC.layoutId)} = ?
     `).run(section.id, layout.id);
   }
 
@@ -674,6 +723,72 @@ const transaction = db.transaction(() => {
     }
   }
 
+  const ensureIntegration = ({ name, kind, url, secrets }) => {
+    const existing = db.prepare(`SELECT id FROM integration WHERE ${Q(INTC.kind)} = ? AND ${Q(INTC.url)} = ?`)
+      .get(kind, url);
+    const integrationId = existing?.id || newId();
+    if (!existing) {
+      db.prepare(`
+        INSERT INTO integration (${Q(INTC.id)}, ${Q(INTC.name)}, ${Q(INTC.url)}, ${Q(INTC.kind)})
+        VALUES (?, ?, ?, ?)
+      `).run(integrationId, name, url, kind);
+    }
+
+    const upsertSecret = (kind, value) => {
+      const existingSecret = db.prepare(
+        `SELECT 1 FROM integrationSecret WHERE ${Q(ISC.integrationId)} = ? AND ${Q(ISC.kind)} = ?`
+      ).get(integrationId, kind);
+      const encrypted = encryptSecret(value);
+      const updatedAt = Math.floor(Date.now() / 1000);
+      if (existingSecret) {
+        db.prepare(`
+          UPDATE integrationSecret
+          SET ${Q(ISC.value)} = ?, ${Q(ISC.updatedAt)} = ?
+          WHERE ${Q(ISC.integrationId)} = ? AND ${Q(ISC.kind)} = ?
+        `).run(encrypted, updatedAt, integrationId, kind);
+      } else {
+        db.prepare(`
+          INSERT INTO integrationSecret (${Q(ISC.kind)}, ${Q(ISC.value)}, ${Q(ISC.updatedAt)}, ${Q(ISC.integrationId)})
+          VALUES (?, ?, ?, ?)
+        `).run(kind, encrypted, updatedAt, integrationId);
+      }
+    };
+    for (const [kind, value] of Object.entries(secrets)) {
+      upsertSecret(kind, value);
+    }
+    return integrationId;
+  };
+
+  let qbittorrentId = null;
+  const arrIntegrationIds = [];
+  if (hasIntegrations && hasIntegrationSecrets && adminUser && adminPassword) {
+    qbittorrentId = ensureIntegration({
+      name: 'qBittorrent',
+      kind: 'qBittorrent',
+      url: 'http://qbittorrent:8080',
+      secrets: { username: adminUser, password: adminPassword },
+    });
+  } else if (!adminUser || !adminPassword) {
+    console.warn('WARNING: ADMIN_USER or ADMIN_PASSWORD not set - skipping qBittorrent integration.');
+  } else if (!hasIntegrationSecrets) {
+    console.warn('WARNING: Homarr integrationSecret table not found - skipping qBittorrent integration.');
+  }
+
+  if (hasIntegrations && hasIntegrationSecrets) {
+    for (const integration of arrIntegrations) {
+      if (!integration.apiKey) {
+        console.warn(`WARNING: ${integration.name} API key not found - skipping ${integration.name} calendar integration.`);
+        continue;
+      }
+      arrIntegrationIds.push(ensureIntegration({
+        name: integration.name,
+        kind: integration.kind,
+        url: integration.url,
+        secrets: { apiKey: integration.apiKey },
+      }));
+    }
+  }
+
   ensureWidget({
     kind: 'systemResources',
     options: { hasShadow: true, visibleCharts: ['cpu', 'memory', 'network'], labelDisplayMode: 'textWithIcon' },
@@ -683,15 +798,66 @@ const transaction = db.transaction(() => {
     height: 4,
     integrationId: glancesId,
   });
+
+  ensureWidget({
+    kind: 'downloads',
+    options: {
+      columns: ['integration', 'name', 'progress', 'time', 'downSpeed', 'upSpeed', 'actions'],
+      enableRowSorting: true,
+      defaultSort: 'added',
+      descendingDefaultSort: true,
+      showCompletedUsenet: false,
+      showCompletedTorrent: true,
+      showCompletedHttp: false,
+      activeTorrentThreshold: 0,
+      categoryFilter: [],
+      filterIsWhitelist: false,
+      applyFilterToRatio: true,
+      limitPerIntegration: 20,
+    },
+    x: 0,
+    y: 4,
+    width: 12,
+    height: 4,
+    integrationId: qbittorrentId,
+  });
+
+  ensureWidget({
+    kind: 'calendar',
+    options: {
+      releaseType: ['inCinemas', 'digitalRelease'],
+      filterPastMonths: 2,
+      filterFutureMonths: 3,
+      showUnmonitored: false,
+    },
+    x: 0,
+    y: 8,
+    width: 12,
+    height: 4,
+  });
+  const calendarItem = db.prepare(`SELECT id FROM item WHERE ${Q(IC.boardId)} = ? AND kind = 'calendar'`).get(board.id);
+  if (calendarItem && hasIntegrations) {
+    for (const integrationId of arrIntegrationIds) {
+      const linked = db.prepare(
+        `SELECT 1 FROM integration_item WHERE ${Q(IIC.itemId)} = ? AND ${Q(IIC.integrationId)} = ?`
+      ).get(calendarItem.id, integrationId);
+      if (!linked) {
+        db.prepare(`INSERT INTO integration_item (${Q(IIC.itemId)}, ${Q(IIC.integrationId)}) VALUES (?, ?)`)
+          .run(calendarItem.id, integrationId);
+      }
+    }
+  }
 });
 
 transaction();
 
 const dockerWidget = db.prepare(`SELECT 1 FROM item WHERE ${Q(IC.boardId)} = ? AND kind = 'dockerContainers'`).get(board.id);
 const systemWidget = db.prepare(`SELECT 1 FROM item WHERE ${Q(IC.boardId)} = ? AND kind = 'systemResources'`).get(board.id);
+const downloadsWidget = db.prepare(`SELECT 1 FROM item WHERE ${Q(IC.boardId)} = ? AND kind = 'downloads'`).get(board.id);
+const calendarWidget = db.prepare(`SELECT 1 FROM item WHERE ${Q(IC.boardId)} = ? AND kind = 'calendar'`).get(board.id);
 db.close();
 
-if (!dockerWidget || !systemWidget) {
+if (!dockerWidget || !systemWidget || !downloadsWidget || !calendarWidget) {
   throw new Error('Homarr operations widgets were not verified after update');
 }
 

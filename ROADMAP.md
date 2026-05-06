@@ -92,7 +92,7 @@ This reduces manual recovery work when first boot races, slow migrations, or ser
 
 Implemented for all post-install scripts. Scripts wait for service readiness, update existing state where supported, and verify final state. The installer now fails the install if post-install configuration cannot prove completion.
 
-The full media pipeline is now wired end-to-end from startup: `configure-sonarr.sh`, `configure-radarr.sh`, and `configure-lidarr.sh` add qBittorrent as download client and set the root media folder; `configure-prowlarr.sh` registers the arr apps as sync targets and seeds the YTS movie indexer; `configure-jellyseerr.sh` connects Radarr and Sonarr with the correct quality profiles and root folders in addition to the Jellyfin connection.
+The full media pipeline is now wired end-to-end from startup: `configure-sonarr.sh`, `configure-radarr.sh`, and `configure-lidarr.sh` add qBittorrent as download client and set the root media folder; `configure-prowlarr.sh` creates or repairs the arr app sync targets, enables Prowlarr add-only sync, and seeds the YTS movie indexer; `configure-jellyseerr.sh` connects Radarr and Sonarr with the correct quality profiles and root folders in addition to the Jellyfin connection.
 
 ## OIDC-First Authentication
 
@@ -122,8 +122,8 @@ Recommended implementation order:
 - [x] Add a cleaned-up local glassmorphism theme inspired by `https://pastebin.com/aMG7t7He`; avoid broad fragile selectors where possible.
 - [x] Add the native Homarr Docker stats widget, using the existing read-only Docker socket mount.
 - [x] Add a server/system resources widget using a supported backend such as Glances or Dash.; use `https://github.com/lxBlazarxl/System-Monitor-iFrame-Widget-for-Homarr` as inspiration only unless native widgets are insufficient.
-- [ ] Add the qBittorrent Download Client widget.
-- [ ] Add the Sonarr/Radarr/Lidarr media calendar widget.
+- [x] Add the qBittorrent Download Client widget.
+- [x] Add the Sonarr/Radarr/Lidarr media calendar widget.
 - [ ] Add the Jellyfin Media Server Streams widget.
 - [ ] Add Jellyseerr request list and request stats widgets if the Homarr integration can be seeded reliably.
 - [ ] Add lightweight utility widgets such as RSS feed, Weather, and Date/time where they do not create first-run configuration friction.
@@ -141,6 +141,8 @@ Live verification notes:
 - 2026-05-05: Live `home.zenlabs.us` update applied by copying the updated script to `/home/developer/ultimate-self-hosted/scripts/configure-homarr.sh` and re-running it. The script detected the existing Home board, skipped reseeding, applied the theme, and restarted Homarr.
 - 2026-05-05: Live DB verification inside the Homarr container showed `primary_color=#38bdf8`, `secondary_color=#fb923c`, `opacity=82`, `item_radius=md`, and a non-empty `custom_css` value containing the `--ush-surface` theme marker. `curl -k https://home.zenlabs.us/` returned `HTTP 200`.
 - 2026-05-06: Repository automation now adds a private Glances service for Homarr's native System Resources widget, connects Homarr to the internal network, and idempotently seeds an Operations section with Docker stats and System Resources widgets on both fresh and existing Home boards.
+- 2026-05-06: Repository automation now idempotently seeds Homarr's native Download Client widget in the Operations section, creates the private `qBittorrent` integration at `http://qbittorrent:8080`, and stores the configured admin WebUI credentials as Homarr-encrypted integration secrets.
+- 2026-05-06: Repository automation now also seeds Homarr's native Calendar widget for Sonarr, Radarr, and Lidarr by reading each arr API key from its container config and storing it as an encrypted Homarr integration secret when available.
 
 ### Jellyfin OIDC Migration
 

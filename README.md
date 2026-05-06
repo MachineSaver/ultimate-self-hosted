@@ -355,14 +355,14 @@ The installer automatically configures most services at the end of the install r
 | Authentik OIDC clients | Homarr, Jellyfin, Nextcloud, Audiobookshelf, Grafana, and Vaultwarden providers/applications created in Authentik |
 | Nextcloud OIDC | `user_oidc` app installed and wired to Authentik |
 | Audiobookshelf OIDC | Root user created; OpenID Connect enabled |
-| Homarr first run | External admin group `homarr-admins` created; onboarding completed; Home board seeded with service sections plus Operations widgets for Docker stats and system resources |
+| Homarr first run | External admin group `homarr-admins` created; onboarding completed; Home board seeded with service sections plus Operations widgets for Docker stats, system resources, qBittorrent downloads, and arr calendars |
 | Jellyfin first run | Admin user created; Movies, TV Shows, Music, Audiobooks, and Books libraries added when paths exist |
 | Jellyfin OIDC | SSO Authentication plugin repository added; plugin installed when needed; Authentik OpenID provider `authentik` configured |
 | Jellyseerr first run | Connected to Jellyfin; libraries synced; Radarr and Sonarr connected with quality profiles and root folders |
 | Sonarr setup | qBittorrent download client configured; `/tv` root folder added |
 | Radarr setup | qBittorrent download client configured; `/movies` root folder added |
 | Lidarr setup | qBittorrent download client configured; `/music` root folder added |
-| Prowlarr setup | Sonarr, Radarr, and Lidarr registered as sync targets; YTS public movie indexer added |
+| Prowlarr setup | Sonarr, Radarr, and Lidarr registered or repaired as enabled sync targets; YTS public movie indexer added and synced to compatible apps |
 | Uptime Kuma admin account | Created with your install credentials |
 | qBittorrent credentials | Username + password set to your install credentials |
 | Headscale user + pre-auth key | User created; key printed at end of install |
